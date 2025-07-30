@@ -86,6 +86,36 @@ const EmptyState = ({ message, hasSearch = false }) => (
   </View>
 );
 
+// Componente de Paginación
+const Pagination = ({ currentPage, totalPages, totalItems, onPageChange }) => (
+  <View style={styles.paginationContainer}>
+    <TouchableOpacity
+      style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
+      onPress={() => onPageChange(currentPage - 1)}
+      disabled={currentPage === 1}
+    >
+      <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? '#6b7280' : '#ffffff'} />
+    </TouchableOpacity>
+    
+    <View style={styles.paginationInfo}>
+      <Text style={styles.paginationText}>
+        Página {currentPage} de {totalPages}
+      </Text>
+      <Text style={styles.paginationSubtext}>
+        {totalItems} registros
+      </Text>
+    </View>
+    
+    <TouchableOpacity
+      style={[styles.paginationButton, currentPage === totalPages && styles.paginationButtonDisabled]}
+      onPress={() => onPageChange(currentPage + 1)}
+      disabled={currentPage === totalPages}
+    >
+      <Ionicons name="chevron-forward" size={20} color={currentPage === totalPages ? '#6b7280' : '#ffffff'} />
+    </TouchableOpacity>
+  </View>
+);
+
 // Componente PedidoDetails mejorado
 const PedidoDetails = ({
   pedido,
@@ -130,6 +160,44 @@ const PedidoDetails = ({
       fetchPedidosDetalle(pedido.notas_venta_id);
     }
   }, [pedido?.notas_venta_id, fetchPedidosDetalle]);
+
+  // Efecto para mostrar detalles del producto cuando se selecciona uno
+  useEffect(() => {
+    if (detalleForm.productos_id) {
+      const producto = productos.find(p => p.id === Number(detalleForm.productos_id));
+      if (producto) {
+        const cantidad = Number(detalleForm.cantidad) || 0;
+        
+        // Calcular precios
+        let precioPorKilo = 50;
+        const material = (producto.material || '').toUpperCase();
+        switch (material) {
+          case 'CELOFAN':
+            precioPorKilo = 45;
+            break;
+          case 'POLIETILENO':
+            precioPorKilo = 35;
+            break;
+          default:
+            precioPorKilo = 50;
+        }
+
+        const precioUnitario = material === 'CELOFAN' 
+          ? calcularPrecioUnitario(producto, precioPorKilo)
+          : precioPorKilo;
+
+        const precioConIva = precioUnitario * 1.16;
+        const importeTotal = cantidad > 0 ? precioConIva * cantidad : 0;
+        const kgPorMillar = calcularKgPorMillar(producto);
+
+        // Actualizar los campos calculados
+        handleDetalleChange('precio_unitario_sin_iva', precioUnitario.toFixed(2));
+        handleDetalleChange('precio_unitario_con_iva', precioConIva.toFixed(2));
+        handleDetalleChange('kg_por_millar', kgPorMillar.toFixed(2));
+        handleDetalleChange('importe_total', importeTotal.toFixed(2));
+      }
+    }
+  }, [detalleForm.productos_id, detalleForm.cantidad, productos, handleDetalleChange]);
 
   const exportarPDF = async () => {
     if (!pedido) return;
@@ -394,6 +462,8 @@ const PedidoDetails = ({
     return <LoadingComponent text="Cargando detalles del pedido..." />;
   }
 
+  const productoSeleccionado = productos.find(p => p.id === Number(detalleForm.productos_id));
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -489,6 +559,57 @@ const PedidoDetails = ({
                   />
                 </View>
               </View>
+
+              {/* Información adicional del producto */}
+              {productoSeleccionado && (
+                <View style={styles.productoInfoContainer}>
+                  <Text style={styles.productoInfoTitle}>Información del Producto</Text>
+                  
+                  <View style={styles.productoInfoGrid}>
+                    <View style={styles.productoInfoItem}>
+                      <Text style={styles.productoInfoLabel}>Medidas:</Text>
+                      <Text style={styles.productoInfoValue}>
+                        {productoSeleccionado.ancho_cm}x{productoSeleccionado.largo_cm}cm
+                      </Text>
+                    </View>
+                    
+                    <View style={styles.productoInfoItem}>
+                      <Text style={styles.productoInfoLabel}>Micraje:</Text>
+                      <Text style={styles.productoInfoValue}>
+                        {productoSeleccionado.micraje_um}μm
+                      </Text>
+                    </View>
+
+                    <View style={styles.productoInfoItem}>
+                      <Text style={styles.productoInfoLabel}>Precio/Kilo:</Text>
+                      <Text style={styles.productoInfoValue}>
+                        ${detalleForm.precio_unitario_sin_iva || '0.00'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.productoInfoItem}>
+                      <Text style={styles.productoInfoLabel}>Precio con IVA:</Text>
+                      <Text style={styles.productoInfoValue}>
+                        ${detalleForm.precio_unitario_con_iva || '0.00'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.productoInfoItem}>
+                      <Text style={styles.productoInfoLabel}>Kg por millar:</Text>
+                      <Text style={styles.productoInfoValue}>
+                        {detalleForm.kg_por_millar || '0.00'}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.productoInfoItem, styles.productoInfoTotal]}>
+                      <Text style={styles.productoInfoLabel}>Importe Total:</Text>
+                      <Text style={[styles.productoInfoValue, styles.productoInfoTotalValue]}>
+                        ${detalleForm.importe_total || '0.00'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
 
               <View style={styles.botonesFormularioProducto}>
                 <TouchableOpacity
@@ -765,6 +886,9 @@ export default function Pedidos() {
   const [aplicarIva, setAplicarIva] = useState(true);
   const [productoEditando, setProductoEditando] = useState(null);
   const [indexEditando, setIndexEditando] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [pedidoDetalleOriginal, setPedidoDetalleOriginal] = useState(null);
 
   // Estados del formulario
   const [form, setForm] = useState({
@@ -784,6 +908,10 @@ export default function Pedidos() {
   const [detalleForm, setDetalleForm] = useState({
     productos_id: '',
     cantidad: '',
+    precio_unitario_sin_iva: '',
+    precio_unitario_con_iva: '',
+    kg_por_millar: '',
+    importe_total: '',
   });
 
   const [productosSeleccionados, setProductosSeleccionados] = useState([]);
@@ -793,6 +921,10 @@ export default function Pedidos() {
     setDetalleForm({
       productos_id: '',
       cantidad: '',
+      precio_unitario_sin_iva: '',
+      precio_unitario_con_iva: '',
+      kg_por_millar: '',
+      importe_total: '',
     });
   }, []);
 
@@ -817,6 +949,7 @@ export default function Pedidos() {
     resetDetalleForm();
     setProductoEditando(null);
     setIndexEditando(null);
+    setPedidoDetalleOriginal(null);
   }, [resetDetalleForm]);
 
   // Función de cálculo de subtotal
@@ -1064,7 +1197,15 @@ export default function Pedidos() {
   // Handlers
   const handleChange = useCallback((campo, valor) => {
     setForm((prev) => ({ ...prev, [campo]: valor }));
-  }, []);
+
+    // Si se cambia el cliente, actualizar el vendedor automáticamente
+    if (campo === 'cliente_id' && valor) {
+      const cliente = clientes.find(c => c.id === Number(valor));
+      if (cliente && cliente.vendedores_id) {
+        setForm(prev => ({ ...prev, vendedor_id: cliente.vendedores_id.toString() }));
+      }
+    }
+  }, [clientes]);
 
   const handleDetalleChange = useCallback((campo, valor) => {
     setDetalleForm((prev) => ({ ...prev, [campo]: valor }));
@@ -1084,6 +1225,10 @@ export default function Pedidos() {
     setDetalleForm({
       productos_id: producto.productos_id.toString(),
       cantidad: producto.cantidad.toString(),
+      precio_unitario_sin_iva: '',
+      precio_unitario_con_iva: '',
+      kg_por_millar: '',
+      importe_total: '',
     });
     setMostrarFormularioProducto(true);
   }, []);
@@ -1181,24 +1326,7 @@ export default function Pedidos() {
     const abonoNum = Number(abono) || 0;
     const descuentoNum = Number(descuento) || 0;
 
-    // Validar productos
-    const productosParaGuardar = [...productosSeleccionados];
-    
-    if (form.productos_id && form.cantidad) {
-      const precios = calculateSubtotal(form.cantidad, form.productos_id);
-      const producto = productos.find(p => p.id === Number(form.productos_id));
-      
-      productosParaGuardar.push({
-        productos_id: Number(form.productos_id),
-        cantidad: Number(form.cantidad),
-        precio_unitario_sin_iva: precios.precio_unitario_sin_iva,
-        precio_unitario_con_iva: precios.precio_unitario_con_iva,
-        subtotal: precios.subtotal,
-        nombre: producto?.nombre,
-      });
-    }
-
-    if (productosParaGuardar.length === 0) {
+    if (productosSeleccionados.length === 0) {
       Alert.alert('Error', 'Debe agregar al menos un producto.');
       return;
     }
@@ -1212,7 +1340,7 @@ export default function Pedidos() {
       setCargando(true);
 
       // Calcular totales
-      let subtotalTotal = productosParaGuardar.reduce((acc, p) => {
+      let subtotalTotal = productosSeleccionados.reduce((acc, p) => {
         const subtotalLimpio = p.subtotal.toString().replace(/[^0-9.-]+/g, '');
         return acc + Number(subtotalLimpio);
       }, 0);
@@ -1274,7 +1402,7 @@ export default function Pedidos() {
       }
 
       // Crear pedidos
-      const pedidosData = productosParaGuardar.map(p => ({
+      const pedidosData = productosSeleccionados.map(p => ({
         notas_venta_id: notaVentaId,
         productos_id: Number(p.productos_id),
         cantidad: Number(p.cantidad),
@@ -1303,6 +1431,17 @@ export default function Pedidos() {
       }
 
       Alert.alert('Éxito', id ? 'Pedido actualizado correctamente' : 'Pedido creado correctamente');
+      
+      // Si estábamos editando desde la vista de detalles, volver a ella
+      if (pedidoDetalleOriginal) {
+        await fetchPedidos();
+        const pedidoActualizado = pedidos.find(p => p.id === pedidoDetalleOriginal.id);
+        if (pedidoActualizado) {
+          setMostrarDetalles(pedidoActualizado);
+        }
+        setPedidoDetalleOriginal(null);
+      }
+      
       resetForm();
       await fetchPedidos();
     } catch (error) {
@@ -1311,7 +1450,7 @@ export default function Pedidos() {
     } finally {
       setCargando(false);
     }
-  }, [form, productosSeleccionados, calculateSubtotal, productos, aplicarIva, clientes, resetForm, fetchPedidos]);
+  }, [form, productosSeleccionados, aplicarIva, clientes, resetForm, fetchPedidos, pedidoDetalleOriginal, pedidos]);
 
   const handleEliminar = useCallback(async (id) => {
     Alert.alert(
@@ -1492,6 +1631,11 @@ export default function Pedidos() {
       return;
     }
 
+    // Guardar referencia del pedido si venimos desde detalles
+    if (mostrarDetalles) {
+      setPedidoDetalleOriginal(pedido);
+    }
+
     setForm({
       id: pedido.id,
       notas_venta_id: pedido.notas_venta_id,
@@ -1510,7 +1654,7 @@ export default function Pedidos() {
     setAplicarIva((pedido.notas_venta.iva || 0) > 0);
     setMostrarFormulario(true);
     setMostrarDetalles(null);
-  }, [fetchPedidosDetalle]);
+  }, [fetchPedidosDetalle, mostrarDetalles]);
 
   const handleVerDetalles = useCallback((pedido) => {
     if (!pedido?.productos || !pedido?.notas_venta) {
@@ -1521,13 +1665,21 @@ export default function Pedidos() {
   }, []);
 
   const handleVolver = useCallback(() => {
-    setMostrarDetalles(null);
-    setMostrarFormularioProducto(false);
-    setProductosSeleccionados([]);
-    setProductoEditando(null);
-    setIndexEditando(null);
-    resetDetalleForm();
-  }, [resetDetalleForm]);
+    // Si estamos volviendo desde el formulario y teníamos un pedido original
+    if (mostrarFormulario && pedidoDetalleOriginal) {
+      setMostrarDetalles(pedidoDetalleOriginal);
+      setPedidoDetalleOriginal(null);
+      resetForm();
+    } else {
+      // Comportamiento normal
+      setMostrarDetalles(null);
+      setMostrarFormularioProducto(false);
+      setProductosSeleccionados([]);
+      setProductoEditando(null);
+      setIndexEditando(null);
+      resetDetalleForm();
+    }
+  }, [mostrarFormulario, pedidoDetalleOriginal, resetForm, resetDetalleForm]);
 
   // Funciones de exportación
   const exportarExcel = useCallback(async () => {
@@ -1679,9 +1831,9 @@ export default function Pedidos() {
             <td>${p.productos?.nombre || 'N/A'}</td>
             <td>${p.productos?.material || 'N/A'}</td>
             <td>${p.cantidad || 0} ${unidades}</td>
-            <td>$${(p.precio_iva || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            <td>$${(p.importe || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            <td>$${(p.notas_venta?.pago_pendiente || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>${(p.precio_iva || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>${(p.importe || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>${(p.notas_venta?.pago_pendiente || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             <td style="color: ${entregado ? '#22c55e' : '#eab308'}">${entregado ? 'Entregado' : 'Pendiente'}</td>
             <td style="color: ${pagado ? '#22c55e' : '#ef4444'}">${pagado ? 'Pagado' : 'Pendiente'}</td>
           </tr>
@@ -1774,8 +1926,8 @@ export default function Pedidos() {
             
             <div class="total">
               <p><strong>Total de pedidos:</strong> ${pedidosFiltrados.length}</p>
-              <p><strong>Importe total:</strong> $${totalGeneral.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-              <p><strong>Total pendiente de pago:</strong> $${totalPendiente.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p><strong>Importe total:</strong> ${totalGeneral.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p><strong>Total pendiente de pago:</strong> ${totalPendiente.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             </div>
             
             <div class="footer">
@@ -1816,10 +1968,26 @@ export default function Pedidos() {
     });
   })();
 
+  // Paginación
+  const totalPages = Math.ceil(pedidosFiltrados.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const pedidosPaginados = pedidosFiltrados.slice(startIndex, endIndex);
+
   // Cargar datos iniciales
   useEffect(() => {
     fetchDatos();
   }, [fetchDatos]);
+
+  // Efecto para actualizar vendedor cuando se selecciona un cliente
+  useEffect(() => {
+    if (form.cliente_id) {
+      const cliente = clientes.find(c => c.id === Number(form.cliente_id));
+      if (cliente && cliente.vendedores_id) {
+        setForm(prev => ({ ...prev, vendedor_id: cliente.vendedores_id.toString() }));
+      }
+    }
+  }, [form.cliente_id, clientes]);
 
   // Theme para inputs
   const inputTheme = {
@@ -1871,22 +2039,19 @@ export default function Pedidos() {
         return acc + Number(subtotalLimpio);
       }, 0);
       
-      if (form.productos_id && form.cantidad) {
-        const calc = calculateSubtotal(form.cantidad, form.productos_id);
-        subtotal += Number(calc.subtotal.replace(/[^0-9.-]+/g, ''));
-      }
-      
       const iva = aplicarIva ? subtotal * 0.16 : 0;
       const total = subtotal + iva - Number(form.descuento || 0);
       
       return { subtotal, iva, total };
     })();
 
+    const productoSeleccionadoForm = productos.find(p => p.id === Number(detalleForm.productos_id));
+
     return (
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>{form.id ? 'Editar Pedido' : 'Nuevo Pedido'}</Text>
-          <TouchableOpacity onPress={resetForm} style={styles.btnVolver}>
+          <TouchableOpacity onPress={handleVolver} style={styles.btnVolver}>
             <Ionicons name="arrow-back" size={16} color="#ffffff" />
             <Text style={styles.botonTexto}>Volver</Text>
           </TouchableOpacity>
@@ -2042,6 +2207,57 @@ export default function Pedidos() {
                   </View>
                 </View>
 
+                {/* Información adicional del producto */}
+                {productoSeleccionadoForm && (
+                  <View style={styles.productoInfoContainer}>
+                    <Text style={styles.productoInfoTitle}>Información del Producto</Text>
+                    
+                    <View style={styles.productoInfoGrid}>
+                      <View style={styles.productoInfoItem}>
+                        <Text style={styles.productoInfoLabel}>Medidas:</Text>
+                        <Text style={styles.productoInfoValue}>
+                          {productoSeleccionadoForm.ancho_cm}x{productoSeleccionadoForm.largo_cm}cm
+                        </Text>
+                      </View>
+                      
+                      <View style={styles.productoInfoItem}>
+                        <Text style={styles.productoInfoLabel}>Micraje:</Text>
+                        <Text style={styles.productoInfoValue}>
+                          {productoSeleccionadoForm.micraje_um}μm
+                        </Text>
+                      </View>
+
+                      <View style={styles.productoInfoItem}>
+                        <Text style={styles.productoInfoLabel}>Precio/Kilo:</Text>
+                        <Text style={styles.productoInfoValue}>
+                          ${detalleForm.precio_unitario_sin_iva || '0.00'}
+                        </Text>
+                      </View>
+
+                      <View style={styles.productoInfoItem}>
+                        <Text style={styles.productoInfoLabel}>Precio con IVA:</Text>
+                        <Text style={styles.productoInfoValue}>
+                          ${detalleForm.precio_unitario_con_iva || '0.00'}
+                        </Text>
+                      </View>
+
+                      <View style={styles.productoInfoItem}>
+                        <Text style={styles.productoInfoLabel}>Kg por millar:</Text>
+                        <Text style={styles.productoInfoValue}>
+                          {detalleForm.kg_por_millar || '0.00'}
+                        </Text>
+                      </View>
+
+                      <View style={[styles.productoInfoItem, styles.productoInfoTotal]}>
+                        <Text style={styles.productoInfoLabel}>Importe Total:</Text>
+                        <Text style={[styles.productoInfoValue, styles.productoInfoTotalValue]}>
+                          ${detalleForm.importe_total || '0.00'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
                 <View style={styles.botonesFormularioProducto}>
                   <TouchableOpacity
                     style={styles.btnGuardarProducto}
@@ -2140,42 +2356,6 @@ export default function Pedidos() {
                 <Text style={styles.emptyProductosText}>No hay productos agregados</Text>
               </View>
             )}
-
-            {/* Producto adicional directo */}
-            <View style={styles.section}>
-              <Text style={styles.subTitle}>Agregar producto rápido (opcional)</Text>
-              <View style={styles.row2}>
-                <View style={styles.col2}>
-                  <Text style={styles.label}>Producto</Text>
-                  <View style={styles.pickerContainer}>
-                    <Picker
-                      selectedValue={form.productos_id}
-                      onValueChange={(value) => handleChange('productos_id', value)}
-                      style={styles.picker}
-                      enabled={!cargando}
-                    >
-                      <Picker.Item label="Seleccionar producto" value="" />
-                      {productos.map((p) => (
-                        <Picker.Item key={p.id} label={`${p.nombre} (${p.material})`} value={p.id.toString()} />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
-                <View style={styles.col2}>
-                  <PaperInput
-                    label="Cantidad"
-                    value={form.cantidad}
-                    onChangeText={(text) => handleChange('cantidad', text)}
-                    mode="outlined"
-                    style={styles.input}
-                    keyboardType="numeric"
-                    theme={inputTheme}
-                    textColor="#ffffff"
-                    disabled={cargando}
-                  />
-                </View>
-              </View>
-            </View>
           </View>
 
           {/* Configuración adicional */}
@@ -2224,7 +2404,7 @@ export default function Pedidos() {
           </View>
 
           {/* Resumen del pedido */}
-          {(productosSeleccionados.length > 0 || (form.productos_id && form.cantidad)) && (
+          {productosSeleccionados.length > 0 && (
             <View style={styles.previewCalculos}>
               <Text style={styles.subTitle}>Resumen del Pedido</Text>
               
@@ -2232,7 +2412,7 @@ export default function Pedidos() {
                 <View style={styles.calculoItem}>
                   <Text style={styles.calculoLabel}>Total de productos:</Text>
                   <Text style={styles.calculoValor}>
-                    {productosSeleccionados.length + (form.productos_id && form.cantidad ? 1 : 0)}
+                    {productosSeleccionados.length}
                   </Text>
                 </View>
                 
@@ -2300,7 +2480,7 @@ export default function Pedidos() {
             
             <TouchableOpacity 
               style={styles.btnCancelarProducto} 
-              onPress={resetForm}
+              onPress={handleVolver}
               disabled={cargando}
             >
               <Ionicons name="close" size={16} color="#ffffff" />
@@ -2386,13 +2566,13 @@ export default function Pedidos() {
 
       {/* Lista de pedidos */}
       <ScrollView style={styles.lista} showsVerticalScrollIndicator={false}>
-        {pedidosFiltrados.length === 0 ? (
+        {pedidosPaginados.length === 0 ? (
           <EmptyState 
             message="No hay pedidos registrados" 
             hasSearch={busqueda.length > 0} 
           />
         ) : (
-          pedidosFiltrados.map((p) => {
+          pedidosPaginados.map((p) => {
             const vendedorPedido = vendedores.find((v) => v.id === p.notas_venta?.clientes?.vendedores_id);
             const pagadoPedido = (p.notas_venta?.pago_pendiente || 0) <= 0;
             const entregadoPedido = p.entregas?.length > 0;
@@ -2530,9 +2710,20 @@ export default function Pedidos() {
           })
         )}
       </ScrollView>
+
+      {/* Paginación */}
+      {pedidosFiltrados.length > itemsPerPage && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={pedidosFiltrados.length}
+          onPageChange={setCurrentPage}
+        />
+      )}
     </View>
   );
 }
+       
 
 // Estilos mejorados
 const styles = StyleSheet.create({
@@ -3231,5 +3422,83 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     maxWidth: 150,
+  },
+  // Estilos de paginación
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#334155',
+    marginTop: 8,
+  },
+  paginationButton: {
+    backgroundColor: '#1e293b',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  paginationButtonDisabled: {
+    backgroundColor: '#0f172a',
+    borderColor: '#1e293b',
+  },
+  paginationInfo: {
+    alignItems: 'center',
+  },
+  paginationText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  paginationSubtext: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  // Estilos para la información del producto
+  productoInfoContainer: {
+    backgroundColor: '#374151',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+  },
+  productoInfoTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  productoInfoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  productoInfoItem: {
+    flex: 1,
+    minWidth: '45%',
+  },
+  productoInfoLabel: {
+    color: '#94a3b8',
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  productoInfoValue: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  productoInfoTotal: {
+    width: '100%',
+    borderTopWidth: 1,
+    borderTopColor: '#4b5563',
+    paddingTop: 8,
+    marginTop: 8,
+  },
+  productoInfoTotalValue: {
+    color: '#3b82f6',
+    fontSize: 16,
   },
 });
