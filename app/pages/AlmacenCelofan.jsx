@@ -739,7 +739,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 10,
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 10
   },
   inputText: { color: '#fff', flex: 1, paddingVertical: 10, marginLeft: 6 },
   botoneraDerecha: {
@@ -747,39 +747,39 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 10,
     marginBottom: 10,
-    flexWrap: 'wrap',
+    flexWrap: 'wrap'
   },
   botonAgregar: {
     backgroundColor: '#0bab64',
     padding: 10,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: 'center'
   },
   btnExportarExcel: {
     backgroundColor: '#3b82f6',
     padding: 10,
     borderRadius: 8,
     alignItems: 'center',
-    minWidth: 80,
+    minWidth: 80
   },
   btnExportarPDF: {
     backgroundColor: '#f59e0b',
     padding: 10,
     borderRadius: 8,
     alignItems: 'center',
-    minWidth: 80,
+    minWidth: 80
   },
   btnEliminar: {
     backgroundColor: '#ef4444',
     padding: 10,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: 'center'
   },
   btnEditar: {
     backgroundColor: '#eab308',
     padding: 10,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: 'center'
   },
   botonTexto: { color: '#fff', fontWeight: 'bold' },
   formulario: {
@@ -789,35 +789,35 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     maxWidth: Dimensions.get('window').width > 900 ? 900 : '100%',
     alignSelf: 'center',
-    width: '100%',
+    width: '100%'
   },
   formTitulo: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
   botonesForm: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 12,
-    gap: 10,
+    gap: 10
   },
   btnGuardar: {
     backgroundColor: '#3b82f6',
     flex: 1,
     padding: 12,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: 'center'
   },
   btnCancelar: {
     backgroundColor: '#ef4444',
     flex: 1,
     padding: 12,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: 'center'
   },
   lista: { marginTop: 10 },
   card: {
     backgroundColor: '#1e293b',
     padding: 16,
     borderRadius: 10,
-    marginBottom: 12,
+    marginBottom: 12
   },
   nombre: { fontSize: 16, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
   info: { color: '#cbd5e1', marginTop: 4 },
@@ -825,20 +825,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     marginTop: 10,
-    gap: 10,
+    gap: 10
   },
   input: {
     backgroundColor: '#1e293b',
-    marginBottom: 12,
+    marginBottom: 12
   },
   row2: {
     flexDirection: 'row',
     gap: 12,
-    flexWrap: 'wrap',
+    flexWrap: 'wrap'
   },
   col2: {
     flex: 1,
-    minWidth: '45%',
+    minWidth: '45%'
   },
   pickerContainer: {
     backgroundColor: '#1e293b',
@@ -846,47 +846,45 @@ const styles = StyleSheet.create({
     borderColor: '#3b82f6',
     borderRadius: 8,
     overflow: 'hidden',
-    marginBottom: 12,
+    marginBottom: 12
   },
   picker: {
     color: '#fff',
     height: Platform.OS === 'web' ? 40 : 50,
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1e293b'
   },
   pickerItem: {
     color: '#ffffff',
     backgroundColor: '#1e293b',
-    fontSize: 16,
+    fontSize: 16
   },
   pickerItemPlaceholder: {
     color: '#cccccc',
     backgroundColor: '#1e293b',
-    fontSize: 16,
+    fontSize: 16
   },
   label: {
     color: '#fff',
     fontSize: 12,
-    marginBottom: 4,
+    marginBottom: 4
   },
   loadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+    padding: 20
   },
   loadingText: {
     color: '#fff',
-    marginTop: 10,
+    marginTop: 10
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 40,
+    padding: 40
   },
   emptyText: {
     color: '#cbd5e1',
     fontSize: 16,
-    textAlign: 'center',
-  },
-});
-  },
+    textAlign: 'center'
+  }
 });
