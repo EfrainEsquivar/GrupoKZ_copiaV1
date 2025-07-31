@@ -697,13 +697,23 @@ export default function AlmacenCelofanMovimientos() {
               <Text style={styles.info}>
                 🏭 Producción:{' '}
                 {m.produccion_celofan?.fecha
-                  ? new Date(m.produccion_celofan.fecha).toLocaleDateString('es-ES')
+                  ? new Date(m.produccion_celofan.fecha).toLocaleDateString('es-ES',{
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      timeZone: 'America/Mexico_City'
+                    })
                   : '-'}
               </Text>
               <Text style={styles.info}>
                 🚚 Entrega:{' '}
                 {m.entregas?.fecha_entrega
-                  ? `${new Date(m.entregas.fecha_entrega).toLocaleDateString('es-ES')} ${m.entregas.pedidos_id ? `(Pedido ${m.entregas.pedidos_id})` : ''}`
+                  ? `${new Date(m.entregas.fecha_entrega).toLocaleDateString('es-ES', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      timeZone: 'America/Mexico_City'
+                    })} ${m.entregas.pedidos_id ? `(Pedido ${m.entregas.pedidos_id})` : ''}`
                   : '-'}
               </Text>
               <View style={styles.botonesCard}>
