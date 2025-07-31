@@ -1,4 +1,5 @@
 // app/pages/AlmacenCelofan.jsx
+```javascript
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import * as FileSystem from 'expo-file-system';
@@ -55,7 +56,7 @@ export default function AlmacenCelofanMovimientos() {
       setCargando(true);
       const { data, error } = await supabase
         .from('almacen_celofan_movimientos')
-        .select('*, productos(nombre, material), produccion_celofan(fecha), entregas(fecha_entrega)')
+        .select('*, productos(nombre, material), produccion_celofan(fecha, productos!inner(nombre)), entregas(fecha_entrega, pedidos_id)')
         .order('fecha', { ascending: false });
 
       if (error) {
@@ -118,8 +119,8 @@ export default function AlmacenCelofanMovimientos() {
     try {
       const { data, error } = await supabase
         .from('entregas')
-        .select('id, fecha_entrega')
-        .order('fecha_entrega', { ascending: false });
+        .select('id, fecha_entrega, pedidos_id')
+        .order('fecha_entrega', { ascending: false, nullsLast: true });
 
       if (error) {
         console.error('Error fetching entregas:', error);
@@ -193,7 +194,7 @@ export default function AlmacenCelofanMovimientos() {
         : await supabase.from('almacen_celofan_movimientos').insert([dataEnviar]);
 
       if (error) {
-        Alert.alert('Error', 'No se pudo guardar el movimiento: ' + error.message);
+        Alert.alert('Error', `No se pudo guardar el movimiento: ${error.message}`);
         console.error('Error saving almacen_celofan_movimientos:', error);
         return;
       }
@@ -223,7 +224,7 @@ export default function AlmacenCelofanMovimientos() {
               setCargando(true);
               const { error } = await supabase.from('almacen_celofan_movimientos').delete().eq('id', id);
               if (error) {
-                Alert.alert('Error', 'No se pudo eliminar el movimiento: ' + error.message);
+                Alert.alert('Error', `No se pudo eliminar el movimiento: ${error.message}`);
                 console.error('Error deleting almacen_celofan_movimientos:', error);
                 return;
               }
@@ -268,6 +269,7 @@ export default function AlmacenCelofanMovimientos() {
         Entrega: m.entregas?.fecha_entrega
           ? new Date(m.entregas.fecha_entrega).toLocaleDateString('es-ES')
           : '-',
+        Pedido: m.entregas?.pedidos_id || '-',
       }));
 
       const ws = XLSX.utils.json_to_sheet(datos);
@@ -318,6 +320,7 @@ export default function AlmacenCelofanMovimientos() {
                   <th>Movimiento</th>
                   <th>Producción</th>
                   <th>Entrega</th>
+                  <th>Pedido</th>
                 </tr>
               </thead>
               <tbody>
@@ -350,6 +353,7 @@ export default function AlmacenCelofanMovimientos() {
                 ? new Date(m.entregas.fecha_entrega).toLocaleDateString('es-ES')
                 : '-'
             }</td>
+            <td>${m.entregas?.pedidos_id || '-'}</td>
           </tr>
         `;
       });
@@ -614,7 +618,11 @@ export default function AlmacenCelofanMovimientos() {
                       entregas.map((e) => (
                         <Picker.Item
                           key={e.id}
-                          label={new Date(e.fecha_entrega).toLocaleDateString('es-ES')}
+                          label={
+                            e.fecha_entrega
+                              ? `${new Date(e.fecha_entrega).toLocaleDateString('es-ES')} ${e.pedidos_id ? `(Pedido ${e.pedidos_id})` : ''}`
+                              : `Entrega ID ${e.id} (Sin fecha)`
+                          }
                           value={e.id.toString()}
                           style={styles.pickerItem}
                         />
@@ -696,7 +704,7 @@ export default function AlmacenCelofanMovimientos() {
               <Text style={styles.info}>
                 🚚 Entrega:{' '}
                 {m.entregas?.fecha_entrega
-                  ? new Date(m.entregas.fecha_entrega).toLocaleDateString('es-ES')
+                  ? `${new Date(m.entregas.fecha_entrega).toLocaleDateString('es-ES')} ${m.entregas.pedidos_id ? `(Pedido ${m.entregas.pedidos_id})` : ''}`
                   : '-'}
               </Text>
               <View style={styles.botonesCard}>
@@ -881,3 +889,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+```
