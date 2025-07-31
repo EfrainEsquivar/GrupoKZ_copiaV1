@@ -1,5 +1,4 @@
 // app/pages/AlmacenCelofan.jsx
-```javascript
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import * as FileSystem from 'expo-file-system';
@@ -887,6 +886,8 @@ const styles = StyleSheet.create({
     color: '#cbd5e1',
     fontSize: 16,
     textAlign: 'center',
+  },
+});
   },
 });
 ```
