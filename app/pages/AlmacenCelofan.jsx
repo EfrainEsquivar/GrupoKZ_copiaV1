@@ -890,4 +890,3 @@ const styles = StyleSheet.create({
 });
   },
 });
-```
