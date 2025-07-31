@@ -21,7 +21,7 @@ import { TextInput as PaperInput } from 'react-native-paper';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase';
 
-export default function AlmacenCelofan() {
+export default function AlmacenCelofanMovimientos() {
   const [movimientos, setMovimientos] = useState([]);
   const [productos, setProductos] = useState([]);
   const [producciones, setProducciones] = useState([]);
@@ -32,7 +32,7 @@ export default function AlmacenCelofan() {
   const [cargandoExportar, setCargandoExportar] = useState(false);
   const [form, setForm] = useState({
     id: null,
-    fecha: new Date().toISOString().split('T')[0],
+    fecha: new Date().toISOString(),
     producto_id: '',
     millares: '0',
     movimiento: '',
@@ -40,7 +40,7 @@ export default function AlmacenCelofan() {
     entrega_id: '',
   });
 
-  const movimientosTipos = ['Entrada', 'Salida'];
+  const movimientosTipos = ['entrada', 'salida'];
 
   useEffect(() => {
     fetchMovimientos();
@@ -54,7 +54,7 @@ export default function AlmacenCelofan() {
       setCargando(true);
       const { data, error } = await supabase
         .from('almacen_celofan_movimientos')
-        .select('*, productos(nombre), produccion_celofan(fecha), entregas(fecha_entrega)')
+        .select('*, productos(nombre, material), produccion_celofan(fecha), entregas(fecha_entrega)')
         .order('fecha', { ascending: false });
 
       if (error) {
@@ -76,17 +76,20 @@ export default function AlmacenCelofan() {
     try {
       const { data, error } = await supabase
         .from('productos')
-        .select('id, nombre')
-        .order('nombre', { ascending: true }); // Eliminé el filtro por material
+        .select('id, nombre, material')
+        .eq('material', 'Celofán')
+        .order('nombre', { ascending: true });
 
       if (error) {
         console.error('Error fetching productos:', error);
+        Alert.alert('Error', 'No se pudieron cargar los productos');
         return;
       }
 
       setProductos(data || []);
     } catch (error) {
       console.error('Error en fetchProductos:', error);
+      Alert.alert('Error', 'Error inesperado al cargar productos');
     }
   };
 
@@ -94,17 +97,19 @@ export default function AlmacenCelofan() {
     try {
       const { data, error } = await supabase
         .from('produccion_celofan')
-        .select('id, fecha')
+        .select('id, fecha, productos!inner(nombre)')
         .order('fecha', { ascending: false });
 
       if (error) {
         console.error('Error fetching produccion_celofan:', error);
+        Alert.alert('Error', 'No se pudieron cargar las producciones');
         return;
       }
 
       setProducciones(data || []);
     } catch (error) {
       console.error('Error en fetchProducciones:', error);
+      Alert.alert('Error', 'Error inesperado al cargar producciones');
     }
   };
 
@@ -117,12 +122,14 @@ export default function AlmacenCelofan() {
 
       if (error) {
         console.error('Error fetching entregas:', error);
+        Alert.alert('Error', 'No se pudieron cargar las entregas');
         return;
       }
 
       setEntregas(data || []);
     } catch (error) {
       console.error('Error en fetchEntregas:', error);
+      Alert.alert('Error', 'Error inesperado al cargar entregas');
     }
   };
 
@@ -139,7 +146,7 @@ export default function AlmacenCelofan() {
   const resetForm = () => {
     setForm({
       id: null,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: new Date().toISOString(),
       producto_id: '',
       millares: '0',
       movimiento: '',
@@ -157,26 +164,27 @@ export default function AlmacenCelofan() {
     }
 
     const millaresNum = Number(millares);
-
-    if (isNaN(millaresNum) || millaresNum <= 0) {
-      return Alert.alert('Error', 'Los millares deben ser un número mayor a 0.');
+    if (isNaN(millaresNum) || millaresNum < 0) {
+      return Alert.alert('Error', 'Los millares deben ser un número mayor o igual a 0.');
     }
 
-    if ((movimiento === 'Entrada' && !produccion_id) || (movimiento === 'Salida' && !entrega_id)) {
-      return Alert.alert('Error', movimiento === 'Entrada' 
-        ? 'Selecciona una producción para entradas.' 
-        : 'Selecciona una entrega para salidas.');
+    if (movimiento === 'entrada' && !produccion_id) {
+      return Alert.alert('Error', 'Selecciona una producción para entradas.');
+    }
+
+    if (movimiento === 'salida' && !entrega_id) {
+      return Alert.alert('Error', 'Selecciona una entrega para salidas.');
     }
 
     try {
       setCargando(true);
       const dataEnviar = {
         fecha,
-        producto_id,
+        producto_id: Number(producto_id),
         millares: millaresNum,
         movimiento,
-        produccion_id: movimiento === 'Entrada' ? produccion_id : null,
-        entrega_id: movimiento === 'Salida' ? entrega_id : null,
+        produccion_id: movimiento === 'entrada' ? Number(produccion_id) : null,
+        entrega_id: movimiento === 'salida' ? Number(entrega_id) : null,
       };
 
       const { error } = id
@@ -213,13 +221,11 @@ export default function AlmacenCelofan() {
             try {
               setCargando(true);
               const { error } = await supabase.from('almacen_celofan_movimientos').delete().eq('id', id);
-
               if (error) {
                 Alert.alert('Error', 'No se pudo eliminar el movimiento.');
                 console.error('Error deleting almacen_celofan_movimientos:', error);
                 return;
               }
-
               Alert.alert('Éxito', 'Movimiento eliminado correctamente');
               fetchMovimientos();
             } catch (error) {
@@ -237,31 +243,38 @@ export default function AlmacenCelofan() {
   const exportarExcel = async () => {
     try {
       setCargandoExportar(true);
-
       if (movimientosFiltrados.length === 0) {
         Alert.alert('Sin datos', 'No hay movimientos de almacén de celofán para exportar.');
         return;
       }
 
       const datos = movimientosFiltrados.map((m) => ({
-        Fecha: m.fecha,
+        Fecha: new Date(m.fecha).toLocaleString('es-ES', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
         Producto: m.productos?.nombre || '-',
         Millares: m.millares,
         Movimiento: m.movimiento,
-        'Producción': m.produccion_celofan?.fecha || '-',
-        'Entrega': m.entregas?.fecha_entrega || '-',
+        Producción: m.produccion_celofan?.fecha
+          ? new Date(m.produccion_celofan.fecha).toLocaleDateString('es-ES')
+          : '-',
+        Entrega: m.entregas?.fecha_entrega
+          ? new Date(m.entregas.fecha_entrega).toLocaleDateString('es-ES')
+          : '-',
       }));
+
       const ws = XLSX.utils.json_to_sheet(datos);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'AlmacenCelofan');
-
       const base64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
       const uri = FileSystem.cacheDirectory + 'almacen_celofan.xlsx';
-
       await FileSystem.writeAsStringAsync(uri, base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
-
       await Sharing.shareAsync(uri);
     } catch (error) {
       console.error('Error exportando Excel:', error);
@@ -274,7 +287,6 @@ export default function AlmacenCelofan() {
   const exportarPDF = async () => {
     try {
       setCargandoExportar(true);
-
       if (movimientosFiltrados.length === 0) {
         Alert.alert('Sin datos', 'No hay movimientos de almacén de celofán para exportar.');
         return;
@@ -311,12 +323,26 @@ export default function AlmacenCelofan() {
       movimientosFiltrados.forEach((m) => {
         html += `
           <tr>
-            <td>${m.fecha || '-'}</td>
+            <td>${new Date(m.fecha).toLocaleString('es-ES', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}</td>
             <td>${m.productos?.nombre || '-'}</td>
             <td>${m.millares || '-'}</td>
             <td>${m.movimiento || '-'}</td>
-            <td>${m.produccion_celofan?.fecha || '-'}</td>
-            <td>${m.entregas?.fecha_entrega || '-'}</td>
+            <td>${
+              m.produccion_celofan?.fecha
+                ? new Date(m.produccion_celofan.fecha).toLocaleDateString('es-ES')
+                : '-'
+            }</td>
+            <td>${
+              m.entregas?.fecha_entrega
+                ? new Date(m.entregas.fecha_entrega).to localeDateString('es-ES')
+                : '-'
+            }</td>
           </tr>
         `;
       });
@@ -343,11 +369,11 @@ export default function AlmacenCelofan() {
     setForm({
       id: movimiento.id,
       fecha: movimiento.fecha,
-      producto_id: movimiento.producto_id.toString(),
-      millares: movimiento.millares.toString(),
+      producto_id: movimiento.producto_id ? movimiento.producto_id.toString() : '',
+      millares: movimiento.millares ? movimiento.millares.toString() : '0',
       movimiento: movimiento.movimiento,
-      produccion_id: movimiento.produccion_id?.toString() || '',
-      entrega_id: movimiento.entrega_id?.toString() || '',
+      produccion_id: movimiento.produccion_id ? movimiento.produccion_id.toString() : '',
+      entrega_id: movimiento.entrega_id ? movimiento.entrega_id.toString() : '',
     });
     setMostrarFormulario(true);
   };
@@ -363,7 +389,6 @@ export default function AlmacenCelofan() {
       keyboardVerticalOffset={80}
     >
       <Text style={styles.title}>📦 Almacén de Celofán</Text>
-
       <View style={styles.buscador}>
         <Ionicons name="search" size={20} color="#ccc" />
         <TextInput
@@ -374,7 +399,6 @@ export default function AlmacenCelofan() {
           onChangeText={setBusqueda}
         />
       </View>
-
       <View style={styles.botoneraDerecha}>
         <TouchableOpacity
           style={styles.botonAgregar}
@@ -383,7 +407,6 @@ export default function AlmacenCelofan() {
         >
           <Text style={styles.botonTexto}>➕ Agregar Movimiento</Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           onPress={exportarExcel}
           style={styles.btnExportarExcel}
@@ -395,7 +418,6 @@ export default function AlmacenCelofan() {
             <Text style={styles.botonTexto}>📊 Excel</Text>
           )}
         </TouchableOpacity>
-
         <TouchableOpacity
           onPress={exportarPDF}
           style={styles.btnExportarPDF}
@@ -408,23 +430,27 @@ export default function AlmacenCelofan() {
           )}
         </TouchableOpacity>
       </View>
-
       {mostrarFormulario && (
         <View style={styles.formulario}>
           <Text style={styles.formTitulo}>{form.id ? 'Editar Movimiento' : 'Nuevo Movimiento'}</Text>
-
           <View style={styles.row2}>
             <View style={styles.col2}>
               <PaperInput
                 label="Fecha *"
-                value={form.fecha}
-                onChangeText={(text) => handleChange('fecha', text)}
+                value={form.fecha ? new Date(form.fecha).toLocaleString('es-ES', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }) : ''}
+                onChangeText={(text) => handleChange('fecha', text ? new Date(text).toISOString() : '')}
                 mode="outlined"
                 style={styles.input}
                 theme={inputTheme}
                 textColor="#ffffff"
                 disabled={cargando}
-                placeholder="YYYY-MM-DD"
+                placeholder="DD/MM/YYYY HH:mm"
               />
             </View>
             <View style={styles.col2}>
@@ -463,7 +489,6 @@ export default function AlmacenCelofan() {
               </View>
             </View>
           </View>
-
           <View style={styles.row2}>
             <View style={styles.col2}>
               <PaperInput
@@ -501,7 +526,7 @@ export default function AlmacenCelofan() {
                   {movimientosTipos.map((m) => (
                     <Picker.Item
                       key={m}
-                      label={m}
+                      label={m.charAt(0).toUpperCase() + m.slice(1)}
                       value={m}
                       style={styles.pickerItem}
                     />
@@ -510,8 +535,7 @@ export default function AlmacenCelofan() {
               </View>
             </View>
           </View>
-
-          {form.movimiento === 'Entrada' && (
+          {form.movimiento === 'entrada' && (
             <View style={styles.row2}>
               <View style={styles.col2}>
                 <Text style={styles.label}>Producción *</Text>
@@ -533,7 +557,7 @@ export default function AlmacenCelofan() {
                       producciones.map((p) => (
                         <Picker.Item
                           key={p.id}
-                          label={p.fecha}
+                          label={new Date(p.fecha).toLocaleDateString('es-ES')}
                           value={p.id.toString()}
                           style={styles.pickerItem}
                         />
@@ -551,8 +575,7 @@ export default function AlmacenCelofan() {
               <View style={styles.col2}></View>
             </View>
           )}
-
-          {form.movimiento === 'Salida' && (
+          {form.movimiento === 'salida' && (
             <View style={styles.row2}>
               <View style={styles.col2}>
                 <Text style={styles.label}>Entrega *</Text>
@@ -574,7 +597,7 @@ export default function AlmacenCelofan() {
                       entregas.map((e) => (
                         <Picker.Item
                           key={e.id}
-                          label={e.fecha_entrega}
+                          label={new Date(e.fecha_entrega).toLocaleDateString('es-ES')}
                           value={e.id.toString()}
                           style={styles.pickerItem}
                         />
@@ -592,7 +615,6 @@ export default function AlmacenCelofan() {
               <View style={styles.col2}></View>
             </View>
           )}
-
           <View style={styles.botonesForm}>
             <TouchableOpacity
               style={styles.btnGuardar}
@@ -615,14 +637,12 @@ export default function AlmacenCelofan() {
           </View>
         </View>
       )}
-
       {cargando && !mostrarFormulario && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3b82f6" />
           <Text style={styles.loadingText}>Cargando...</Text>
         </View>
       )}
-
       <ScrollView style={styles.lista}>
         {movimientosFiltrados.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -634,11 +654,21 @@ export default function AlmacenCelofan() {
           movimientosFiltrados.map((m) => (
             <View key={m.id} style={styles.card}>
               <Text style={styles.nombre}>{m.productos?.nombre || '-'}</Text>
-              <Text style={styles.info}>📅 Fecha: {m.fecha || '-'}</Text>
+              <Text style={styles.info}>📅 Fecha: {new Date(m.fecha).toLocaleString('es-ES', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}</Text>
               <Text style={styles.info}>📦 Millares: {m.millares || '-'}</Text>
-              <Text style={styles.info}>↔️ Movimiento: {m.movimiento || '-'}</Text>
-              <Text style={styles.info}>🏭 Producción: {m.produccion_celofan?.fecha || '-'}</Text>
-              <Text style={styles.info}>🚚 Entrega: {m.entregas?.fecha_entrega || '-'}</Text>
+              <Text style={styles.info}>↔️ Movimiento: {m.movimiento.charAt(0).toUpperCase() + m.movimiento.slice(1)}</Text>
+              <Text style={styles.info}>🏭 Producción: {m.produccion_celofan?.fecha
+                ? new Date(m.produccion_celofan.fecha).toLocaleDateString('es-ES')
+                : '-'}</Text>
+              <Text style={styles.info}>🚚 Entrega: {m.entregas?.fecha_entrega
+                ? new Date(m.entregas.fecha_entrega).toLocaleDateString('es-ES')
+                : '-'}</Text>
               <View style={styles.botonesCard}>
                 <TouchableOpacity
                   onPress={() => editarMovimiento(m)}
