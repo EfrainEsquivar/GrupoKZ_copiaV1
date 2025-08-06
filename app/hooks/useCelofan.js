@@ -60,7 +60,7 @@ export const useCelofan = () => {
       const { data, error } = await supabase
         .from('productos')
         .select('*')
-        .eq('material', 'Celofan')
+        .eq('material', 'Celofán')
         .order('nombre', { ascending: true });
 
       if (error) throw error;
@@ -76,7 +76,7 @@ export const useCelofan = () => {
 
   const productosFiltrados = productos.filter(
     (p) =>
-      p.material === 'Celofan' &&
+      p.material === 'Celofán' &&
       (p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
         p.tipo.toLowerCase().includes(busqueda.toLowerCase()))
   );
@@ -102,7 +102,7 @@ export const useCelofan = () => {
   const resetForm = () => {
     setForm({
       id: null,
-      material: 'Celofan',
+      material: 'Celofán',
       presentacion: '',
       tipo: '',
       ancho_cm: '',
@@ -147,7 +147,7 @@ export const useCelofan = () => {
     try {
       setCargando(true);
       const dataEnviar = {
-        material: 'Celofan',
+        material: 'Celofán',
         presentacion,
         tipo,
         ancho_cm: anchoNum,
