@@ -14,7 +14,7 @@ export const useCelofan = () => {
   const [cargandoExportar, setCargandoExportar] = useState(false);
   const [form, setForm] = useState({
     id: null,
-    material: 'Celofan',
+    material: 'Celofán',
     presentacion: '',
     tipo: '',
     ancho_cm: '',
