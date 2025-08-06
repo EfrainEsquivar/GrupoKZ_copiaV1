@@ -59,7 +59,7 @@ export const useProduccionCelofan = () => {
       const { data, error } = await supabase
         .from('productos')
         .select('id, nombre')
-        .eq('material', 'Celofan')
+        .eq('material', 'Celofán')
         .order('nombre', { ascending: true });
 
       if (error) {
