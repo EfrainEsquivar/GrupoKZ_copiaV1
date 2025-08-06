@@ -6,7 +6,7 @@ import { Alert } from 'react-native';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase';
 
-export const useCelofán = () => {
+export const useCelofan = () => {
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
@@ -14,29 +14,30 @@ export const useCelofán = () => {
   const [cargandoExportar, setCargandoExportar] = useState(false);
   const [form, setForm] = useState({
     id: null,
-    material: 'Celofán',
+    material: 'Celofan',
     presentacion: '',
     tipo: '',
     ancho_cm: '',
     largo_cm: '',
-    micraje: '',
+    valor: '', // Will hold either micraje or gramaje value
     nombre: '',
   });
 
-  const presentaciones = ['Bobina', 'Bolsa'];
-  const tipos = ['Negra', 'Semi Natural', 'Virgen', 'Color'];
+  const presentaciones = ['Micraje', 'Gramaje'];
+  const micrajeTipos = ['Mordaza', 'Lateral', 'Pegol', 'Cenefa +Pegol'];
+  const gramajeTipos = ['100gr C', '100gr L', '150gr', '250gr', '500gr', '1kg', '1.5kg', '2kg', '2.5kg', '3kg'];
 
   const generarNombre = (formData) => {
-    const { presentacion, tipo, ancho_cm, largo_cm, micraje } = formData;
+    const { presentacion, tipo, ancho_cm, largo_cm, valor } = formData;
     const anchoNum = Number(ancho_cm) || 0;
     const largoNum = Number(largo_cm) || 0;
-    const micrajeNum = Number(micraje) || 0;
 
-    if (presentacion && tipo && micrajeNum > 0) {
-      if (presentacion === 'Bobina' && largoNum === 0) {
-        return `${formData.material} ${presentacion} ${tipo} ${anchoNum}cm (${micrajeNum})`;
-      } else if (anchoNum > 0 && largoNum > 0) {
-        return `${formData.material} ${presentacion} ${tipo} ${anchoNum}x${largoNum} (${micrajeNum})`;
+    if (presentacion && tipo && valor) {
+      if (presentacion === 'Gramaje' && anchoNum === 0 && largoNum === 0) {
+        return `${formData.material} ${tipo} - Weight Based (${valor})`;
+      } else if (presentacion === 'Micraje' && anchoNum > 0 && largoNum > 0) {
+        const micrajeNum = Number(valor) || 0;
+        return `${formData.material} ${tipo} ${anchoNum}x${largo_cm} (${micrajeNum})`;
       }
     }
     return formData.nombre || `${formData.material} ${presentacion || ''} ${tipo || ''}`;
@@ -51,7 +52,7 @@ export const useCelofán = () => {
       ...prev,
       nombre: generarNombre(prev),
     }));
-  }, [form.presentacion, form.tipo, form.ancho_cm, form.largo_cm, form.micraje]);
+  }, [form.presentacion, form.tipo, form.ancho_cm, form.largo_cm, form.valor]);
 
   const fetchProductos = async () => {
     try {
@@ -59,7 +60,7 @@ export const useCelofán = () => {
       const { data, error } = await supabase
         .from('productos')
         .select('*')
-        .eq('material', 'Celofán')
+        .eq('material', 'Celofan')
         .order('nombre', { ascending: true });
 
       if (error) throw error;
@@ -75,7 +76,7 @@ export const useCelofán = () => {
 
   const productosFiltrados = productos.filter(
     (p) =>
-      p.material === 'Celofán' &&
+      p.material === 'Celofan' &&
       (p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
         p.tipo.toLowerCase().includes(busqueda.toLowerCase()))
   );
@@ -83,6 +84,14 @@ export const useCelofán = () => {
   const handleChange = (campo, valor) => {
     setForm((prev) => {
       const newForm = { ...prev, [campo]: valor };
+      if (campo === 'presentacion') {
+        newForm.tipo = ''; // Reset tipo when presentacion changes
+        if (valor === 'Micraje') {
+          newForm.valor = ''; // Reset valor when switching to Micraje
+        } else if (valor === 'Gramaje') {
+          newForm.valor = ''; // Reset valor when switching to Gramaje
+        }
+      }
       return {
         ...newForm,
         nombre: generarNombre(newForm),
@@ -93,47 +102,58 @@ export const useCelofán = () => {
   const resetForm = () => {
     setForm({
       id: null,
-      material: 'Celofán',
+      material: 'Celofan',
       presentacion: '',
       tipo: '',
       ancho_cm: '',
       largo_cm: '',
-      micraje: '',
+      valor: '',
       nombre: '',
     });
     setMostrarFormulario(false);
   };
 
   const handleGuardar = async () => {
-    const { nombre, presentacion, tipo, ancho_cm, largo_cm, micraje, id } = form;
+    const { nombre, presentacion, tipo, ancho_cm, largo_cm, valor, id } = form;
 
-    if (!nombre.trim() || !presentacion || !tipo || !micraje) {
-      return Alert.alert('Campos requeridos', 'Nombre, presentación, tipo y micraje son obligatorios.');
+    if (!nombre.trim() || !presentacion || !tipo || !valor) {
+      return Alert.alert('Campos requeridos', 'Nombre, presentación, tipo y valor son obligatorios.');
     }
 
     const anchoNum = Number(ancho_cm) || null;
     const largoNum = Number(largo_cm) || null;
-    const micrajeNum = Number(micraje);
+    let micrajeNum = null;
+    let gramajeValue = null;
+
+    if (presentacion === 'Micraje') {
+      micrajeNum = Number(valor);
+      if (isNaN(micrajeNum) || micrajeNum <= 0) {
+        return Alert.alert('Error', 'El micraje debe ser un número mayor a 0.');
+      }
+    } else if (presentacion === 'Gramaje') {
+      gramajeValue = valor;
+      if (isNaN(Number(gramajeValue)) || Number(gramajeValue) <= 0) {
+        return Alert.alert('Error', 'El gramaje debe ser un número mayor a 0.');
+      }
+    }
 
     if (anchoNum !== null && (isNaN(anchoNum) || anchoNum <= 0)) {
       return Alert.alert('Error', 'El ancho debe ser un número mayor a 0 o dejarlo en blanco.');
     }
     if (largoNum !== null && (isNaN(largoNum) || largoNum <= 0)) {
-      return Alert.alert('Error', 'El largo debe ser un número mayor a 0 o dejarlo en blanco (excepto para Bobina).');
-    }
-    if (isNaN(micrajeNum) || micrajeNum <= 0) {
-      return Alert.alert('Error', 'El micraje debe ser un número mayor a 0.');
+      return Alert.alert('Error', 'El largo debe ser un número mayor a 0 o dejarlo en blanco.');
     }
 
     try {
       setCargando(true);
       const dataEnviar = {
-        material: 'Celofán',
+        material: 'Celofan',
         presentacion,
         tipo,
         ancho_cm: anchoNum,
         largo_cm: largoNum,
-        micraje: micrajeNum,
+        micraje: presentacion === 'Micraje' ? micrajeNum : null,
+        gramaje: presentacion === 'Gramaje' ? gramajeValue : null,
         nombre: nombre.trim(),
       };
 
@@ -197,13 +217,14 @@ export const useCelofán = () => {
         Tipo: p.tipo,
         'Ancho (cm)': p.ancho_cm || 'N/A',
         'Largo (cm)': p.largo_cm || 'N/A',
-        'Micraje (µm)': p.micraje,
+        'Micraje (µm)': p.micraje || 'N/A',
+        Gramaje: p.gramaje || 'N/A',
       }));
       const ws = XLSX.utils.json_to_sheet(datos);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Celofán');
+      XLSX.utils.book_append_sheet(wb, ws, 'Celofan');
       const base64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-      const uri = FileSystem.cacheDirectory + 'celofán.xlsx';
+      const uri = FileSystem.cacheDirectory + 'celofan.xlsx';
       await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
       await Sharing.shareAsync(uri);
     } catch (error) {
@@ -244,6 +265,7 @@ export const useCelofán = () => {
                   <th>Ancho (cm)</th>
                   <th>Largo (cm)</th>
                   <th>Micraje (µm)</th>
+                  <th>Gramaje</th>
                 </tr>
               </thead>
               <tbody>
@@ -256,7 +278,8 @@ export const useCelofán = () => {
             <td>${p.tipo}</td>
             <td>${p.ancho_cm || 'N/A'}</td>
             <td>${p.largo_cm || 'N/A'}</td>
-            <td>${p.micraje}</td>
+            <td>${p.micraje || 'N/A'}</td>
+            <td>${p.gramaje || 'N/A'}</td>
           </tr>
         `;
       });
@@ -278,18 +301,18 @@ export const useCelofán = () => {
   };
 
   const editarProducto = (producto) => {
-    if (producto.material !== 'Celofán') {
+    if (producto.material !== 'Celofan') {
       Alert.alert('Error', 'Este producto no es de Celofán.');
       return;
     }
     setForm({
       id: producto.id,
-      material: 'Celofán',
+      material: 'Celofan',
       presentacion: producto.presentacion,
       tipo: producto.tipo,
       ancho_cm: producto.ancho_cm ? producto.ancho_cm.toString() : '',
       largo_cm: producto.largo_cm ? producto.largo_cm.toString() : '',
-      micraje: producto.micraje.toString(),
+      valor: producto.micraje ? producto.micraje.toString() : (producto.gramaje || ''),
       nombre: producto.nombre,
     });
     setMostrarFormulario(true);
@@ -305,7 +328,8 @@ export const useCelofán = () => {
     cargandoExportar,
     form,
     presentaciones,
-    tipos,
+    micrajeTipos,
+    gramajeTipos,
     generarNombre,
     productosFiltrados,
     handleChange,
