@@ -75,11 +75,14 @@ export const useCelofan = () => {
   };
 
   const productosFiltrados = productos.filter(
-    (p) =>
-      p.material === 'Celofán' &&
-      (p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-        p.tipo.toLowerCase().includes(busqueda.toLowerCase()))
-  );
+  (p) =>
+    p.material === 'Celofán' &&
+    (
+      (p.nombre?.toLowerCase().includes(busqueda.toLowerCase())) ||
+      (p.tipo?.toLowerCase().includes(busqueda.toLowerCase()))
+    )
+);
+
 
   const handleChange = (campo, valor) => {
     setForm((prev) => {
