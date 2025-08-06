@@ -143,7 +143,7 @@ const resetForm = useCallback(() => {
     const material = (producto.material || '').toUpperCase();
 
     switch (material) {
-      case 'CELOFAN':
+      case 'CELOFÁN':
         precioPorKilo = 45;
         break;
       case 'POLIETILENO':
@@ -155,7 +155,7 @@ const resetForm = useCallback(() => {
 
     let precioUnitario = 0;
 
-    if (material === 'CELOFAN') {
+    if (material === 'CELOFÁN') {
       // Assuming calcularPrecioUnitario is defined elsewhere or passed as prop
       // For now, keeping a placeholder or simplified logic
       precioUnitario = precioPorKilo; // Simplified
@@ -929,7 +929,7 @@ const handleEliminar = useCallback(async (id) => {
 
       // Crear movimiento en almacén
       const material = pedido.productos?.material?.toUpperCase();
-      if (material === 'CELOFAN') {
+      if (material === 'CELOFÁN') {
         await supabase.from('almacen_celofan_movimientos').insert([{
           fecha: new Date().toISOString().split('T')[0],
           producto_id: pedido.productos_id,
