@@ -10,7 +10,6 @@ import {
   Alert,
   Platform,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -19,736 +18,11 @@ import {
 import { TextInput as PaperInput } from 'react-native-paper';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase';
+import PedidoDetails from '../components/pedidos/PedidoDetails';
+import Pagination from '../components/pedidos/Pagination';
+import { LoadingComponent, EmptyState } from '../components/pedidos/UtilityComponents';
+import styles from './styles/Pedidos.styles';
 
-// Funciones de cálculo mejoradas
-const calcularPrecioUnitario = (producto, precioKilo) => {
-  if (!producto || !precioKilo) return 0;
-  
-  const { tipo, material, ancho_cm, largo_cm, micraje_um } = producto;
-  const anchoNum = parseFloat(ancho_cm) || 0;
-  const largoNum = parseFloat(largo_cm) || 0;
-  const micrajeNum = parseFloat(micraje_um) || 0;
-  const precioKiloNum = parseFloat(precioKilo) || 0;
-
-  switch (tipo?.toUpperCase()) {
-    case "MORDAZA":
-      return (((largoNum * anchoNum + 2) * 2 * micrajeNum) / 10000) * precioKiloNum;
-    case "LATERAL":
-      return (((largoNum * anchoNum) * 2 * micrajeNum) / 10000) * precioKiloNum;
-    case "PEGOL":
-      return (((largoNum * anchoNum + 3) * 2 * micrajeNum) / 10000) * precioKiloNum + (largoNum * 0.12) + 13;
-    case "CENEFA + PEGOL":
-      return (((largoNum * (anchoNum + 6)) * 2 * micrajeNum) / 10000) * precioKiloNum + (largoNum * 0.21) + 20;
-    default:
-      if (material?.toLowerCase() === "polietileno") {
-        return precioKiloNum;
-      }
-      return precioKiloNum;
-  }
-};
-
-const calcularKgPorMillar = (producto) => {
-  if (!producto) return 0;
-  
-  const { tipo, ancho_cm, largo_cm } = producto;
-  const anchoNum = parseFloat(ancho_cm) || 0;
-  const largoNum = parseFloat(largo_cm) || 0;
-
-  switch (tipo?.toUpperCase()) {
-    case "MORDAZA":
-      return ((largoNum * (anchoNum + 2) * 2) * 25) / 10000;
-    case "LATERAL":
-      return ((largoNum * anchoNum * 2) * 25) / 10000;
-    case "PEGOL":
-      return ((largoNum * (anchoNum + 3) * 2) * 25) / 10000;
-    case "CENEFA + PEGOL":
-      return ((largoNum * (anchoNum + 6) * 2) * 25) / 10000;
-    default:
-      return 0;
-  }
-};
-
-// Componente de Loading
-const LoadingComponent = ({ text = "Cargando..." }) => (
-  <View style={styles.loadingContainer}>
-    <ActivityIndicator size="large" color="#3b82f6" />
-    <Text style={styles.loadingText}>{text}</Text>
-  </View>
-);
-
-// Componente de Estado vacío
-const EmptyState = ({ message, hasSearch = false }) => (
-  <View style={styles.emptyContainer}>
-    <Ionicons name="document-text-outline" size={64} color="#6b7280" />
-    <Text style={styles.emptyText}>
-      {hasSearch ? 'No se encontraron pedidos con esa búsqueda' : message}
-    </Text>
-  </View>
-);
-
-// Componente PedidoDetails mejorado
-const PedidoDetails = ({
-  pedido,
-  onVolver,
-  vendedores,
-  productos,
-  cargando,
-  onEditarPedido,
-  onEliminarPedido,
-  onEntregar,
-  onAbonar,
-  productosSeleccionados,
-  setProductosSeleccionados,
-  fetchPedidosDetalle,
-  handleAñadirProducto,
-  handleEliminarProducto,
-  mostrarFormularioProducto,
-  setMostrarFormularioProducto,
-  detalleForm,
-  handleDetalleChange,
-  resetDetalleForm,
-  onEditarProducto,
-  handleCancelarEdicion,
-  productoEditando,
-  indexEditando,
-}) => {
-  // Calcular valores derivados sin hooks condicionales
-  const vendedor = vendedores.find((v) => v.id === pedido?.notas_venta?.clientes?.vendedores_id) || null;
-  const pagado = (pedido?.notas_venta?.pago_pendiente || 0) <= 0;
-
-  const subtotalTotal = productosSeleccionados.reduce((acc, p) => {
-    const subtotalLimpio = (p.subtotal || '0').toString().replace(/[^0-9.-]+/g, '');
-    return acc + (Number(subtotalLimpio) || 0);
-  }, 0);
-
-  const iva = subtotalTotal * 0.16;
-  const total = subtotalTotal + iva - (pedido?.notas_venta?.descuento || 0);
-
-  // Cargar productos del pedido al montar
-  useEffect(() => {
-    if (pedido?.notas_venta_id) {
-      fetchPedidosDetalle(pedido.notas_venta_id);
-    }
-  }, [pedido?.notas_venta_id, fetchPedidosDetalle]);
-
-  const exportarPDF = async () => {
-    if (!pedido) return;
-    
-    try {
-      const fechaActual = new Date();
-      const fechaFormateada = fechaActual.toLocaleString('es-MX', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZoneName: 'short',
-        hour12: true,
-      });
-
-      const productosHTML = productosSeleccionados
-        .map((producto) => {
-          const prod = productos.find(p => p.id === producto.productos_id);
-          const medidas = prod ? `${prod.ancho_cm}x${prod.largo_cm}cm ${prod.micraje_um}μm` : 'N/A';
-          const precioFormateado = Number(producto.precio_unitario_con_iva?.replace(/[^0-9.-]+/g, '') || 0);
-          const subtotalFormateado = Number(producto.subtotal?.replace(/[^0-9.-]+/g, '') || 0);
-          
-          return `
-            <tr>
-              <td>${producto.nombre || 'N/A'}</td>
-              <td>${prod?.material || 'N/A'}</td>
-              <td>${medidas}</td>
-              <td>${producto.cantidad || 0} ${prod?.material === 'POLIETILENO' ? 'kg' : 'millares'}</td>
-              <td>$${precioFormateado.toLocaleString('es-MX', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              })}</td>
-              <td>$${subtotalFormateado.toLocaleString('es-MX', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              })}</td>
-            </tr>
-          `;
-        })
-        .join('');
-
-      const html = `
-        <html>
-          <head>
-            <meta charset="UTF-8">
-            <style>
-              body { 
-                font-family: Arial, sans-serif; 
-                margin: 20px; 
-                color: #333; 
-                line-height: 1.4;
-              }
-              .header {
-                text-align: center;
-                margin-bottom: 30px;
-                border-bottom: 2px solid #3b82f6;
-                padding-bottom: 20px;
-              }
-              h1 { 
-                color: #1f2937; 
-                margin-bottom: 10px;
-                font-size: 28px;
-              }
-              .subtitle {
-                color: #6b7280;
-                font-size: 14px;
-              }
-              .info-section {
-                background-color: #f9fafb;
-                border-radius: 8px;
-                padding: 20px;
-                margin-bottom: 20px;
-              }
-              .info-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 15px;
-              }
-              .info-item {
-                border-bottom: 1px solid #e5e7eb;
-                padding-bottom: 8px;
-              }
-              .info-label {
-                font-weight: bold;
-                color: #374151;
-                font-size: 12px;
-              }
-              .info-value {
-                color: #1f2937;
-                font-size: 14px;
-              }
-              table { 
-                width: 100%; 
-                border-collapse: collapse; 
-                margin: 20px 0;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-              }
-              th, td { 
-                border: 1px solid #d1d5db; 
-                padding: 12px 8px; 
-                text-align: left; 
-              }
-              th { 
-                background-color: #3b82f6; 
-                color: white;
-                font-weight: bold;
-                font-size: 12px;
-              }
-              td {
-                font-size: 11px;
-              }
-              .totals-section {
-                background-color: #f3f4f6;
-                border-radius: 8px;
-                padding: 20px;
-                margin: 20px 0;
-              }
-              .total-row {
-                display: flex;
-                justify-content: space-between;
-                margin-bottom: 8px;
-              }
-              .total-label {
-                font-weight: bold;
-              }
-              .total-final {
-                font-size: 18px;
-                color: #059669;
-                border-top: 2px solid #d1d5db;
-                padding-top: 10px;
-                margin-top: 10px;
-              }
-              .footer { 
-                margin-top: 40px; 
-                text-align: center; 
-                font-size: 12px; 
-                color: #6b7280;
-                border-top: 1px solid #e5e7eb;
-                padding-top: 20px;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1>Comprobante de Pedido</h1>
-              <div class="subtitle">Sistema de Gestión de Pedidos KZ</div>
-            </div>
-            
-            <div class="info-section">
-              <div class="info-grid">
-                <div class="info-item">
-                  <div class="info-label">Folio:</div>
-                  <div class="info-value">${pedido.id || 'N/A'}</div>
-                </div>
-                <div class="info-item">
-                  <div class="info-label">Fecha:</div>
-                  <div class="info-value">${pedido.notas_venta?.fecha || 'N/A'}</div>
-                </div>
-                <div class="info-item">
-                  <div class="info-label">Cliente:</div>
-                  <div class="info-value">${pedido.notas_venta?.clientes?.nombre_contacto || 'N/A'}</div>
-                </div>
-                <div class="info-item">
-                  <div class="info-label">Empresa:</div>
-                  <div class="info-value">${pedido.notas_venta?.clientes?.empresa || 'N/A'}</div>
-                </div>
-                <div class="info-item">
-                  <div class="info-label">Vendedor:</div>
-                  <div class="info-value">${vendedor?.nombre || 'Sin asignar'}</div>
-                </div>
-                <div class="info-item">
-                  <div class="info-label">Número de Factura:</div>
-                  <div class="info-value">${pedido.notas_venta?.numero_factura || 'Sin factura'}</div>
-                </div>
-              </div>
-            </div>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>Producto</th>
-                  <th>Material</th>
-                  <th>Medidas</th>
-                  <th>Cantidad</th>
-                  <th>Precio Unitario</th>
-                  <th>Importe</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${productosHTML}
-              </tbody>
-            </table>
-
-            <div class="totals-section">
-              <div class="total-row">
-                <span>Subtotal:</span>
-                <span>$${subtotalTotal.toLocaleString('es-MX', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
-                })}</span>
-              </div>
-              <div class="total-row">
-                <span>IVA (16%):</span>
-                <span>$${iva.toLocaleString('es-MX', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
-                })}</span>
-              </div>
-              <div class="total-row">
-                <span>Descuento:</span>
-                <span>$${(pedido.notas_venta?.descuento || 0).toLocaleString('es-MX', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
-                })}</span>
-              </div>
-              <div class="total-row total-final">
-                <span><strong>Total:</strong></span>
-                <span><strong>$${total.toLocaleString('es-MX', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
-                })}</strong></span>
-              </div>
-              <div class="total-row">
-                <span>Pago pendiente:</span>
-                <span style="color: ${pagado ? '#059669' : '#dc2626'}">
-                  $${(pedido.notas_venta?.pago_pendiente || 0).toLocaleString('es-MX', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  })}
-                </span>
-              </div>
-            </div>
-
-            <div class="footer">
-              <p>Generado el: ${fechaFormateada}</p>
-              <p>Este documento es un comprobante de pedido interno</p>
-            </div>
-          </body>
-        </html>
-      `;
-
-      const { uri } = await Print.printToFileAsync({ html });
-      await Sharing.shareAsync(uri);
-    } catch (error) {
-      console.error('Error al exportar PDF:', error);
-      Alert.alert('Error', 'No se pudo exportar el archivo PDF: ' + error.message);
-    }
-  };
-
-  const inputTheme = {
-    colors: {
-      primary: '#3b82f6',
-      text: '#ffffff',
-      placeholder: '#ccc',
-      background: '#1e293b',
-    },
-  };
-
-  if (!pedido) {
-    return <LoadingComponent text="Cargando detalles del pedido..." />;
-  }
-
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Detalles del pedido #{pedido.id}</Text>
-        <TouchableOpacity onPress={onVolver} style={styles.btnVolver}>
-          <Ionicons name="arrow-back" size={16} color="#ffffff" />
-          <Text style={styles.botonTexto}>Volver</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.detallesContainer} showsVerticalScrollIndicator={false}>
-        {/* Información del pedido */}
-        <View style={styles.infoGrid}>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Fecha:</Text>
-            <Text style={styles.infoValue}>{pedido.notas_venta?.fecha || 'N/A'}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Folio:</Text>
-            <Text style={styles.infoValue}>{pedido.id || 'N/A'}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Cliente:</Text>
-            <Text style={styles.infoValue}>{pedido.notas_venta?.clientes?.nombre_contacto || 'N/A'}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Empresa:</Text>
-            <Text style={styles.infoValue}>{pedido.notas_venta?.clientes?.empresa || 'N/A'}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Vendedor:</Text>
-            <Text style={styles.infoValue}>{vendedor?.nombre || 'Sin asignar'}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Días de crédito:</Text>
-            <Text style={styles.infoValue}>{pedido.notas_venta?.clientes?.dias_credito || 0} días</Text>
-          </View>
-        </View>
-
-        {/* Sección de productos */}
-        <View style={styles.productosSection}>
-          <View style={styles.productosHeader}>
-            <Text style={styles.subTitle}>Productos del Pedido</Text>
-            <TouchableOpacity
-              style={styles.btnAnadirProducto}
-              onPress={() => setMostrarFormularioProducto(true)}
-              disabled={cargando}
-            >
-              <Ionicons name="add" size={16} color="#ffffff" />
-              <Text style={styles.btnAnadirTexto}>Añadir</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Formulario para añadir/editar productos */}
-          {mostrarFormularioProducto && (
-            <View style={styles.formularioProducto}>
-              <Text style={[styles.subTitle, { marginBottom: 12, fontSize: 14 }]}>
-                {indexEditando !== null ? 'Editar Producto' : 'Agregar Producto'}
-              </Text>
-
-              <View style={styles.row2}>
-                <View style={styles.col2}>
-                  <Text style={styles.label}>Producto</Text>
-                  <View style={styles.pickerContainer}>
-                    <Picker
-                      selectedValue={detalleForm.productos_id}
-                      onValueChange={(value) => handleDetalleChange('productos_id', value)}
-                      style={styles.picker}
-                      enabled={!cargando}
-                    >
-                      <Picker.Item label="Seleccionar producto" value="" />
-                      {productos.map((p) => (
-                        <Picker.Item 
-                          key={p.id} 
-                          label={`${p.nombre} (${p.material})`} 
-                          value={p.id} 
-                        />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
-                <View style={styles.col2}>
-                  <PaperInput
-                    label="Cantidad"
-                    value={detalleForm.cantidad}
-                    onChangeText={(text) => handleDetalleChange('cantidad', text)}
-                    mode="outlined"
-                    style={styles.input}
-                    keyboardType="numeric"
-                    theme={inputTheme}
-                    textColor="#ffffff"
-                    disabled={cargando}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.botonesFormularioProducto}>
-                <TouchableOpacity
-                  style={styles.btnGuardarProducto}
-                  onPress={handleAñadirProducto}
-                  disabled={cargando}
-                >
-                  {cargando ? (
-                    <ActivityIndicator color="#ffffff" size="small" />
-                  ) : (
-                    <Text style={styles.botonTexto}>
-                      {indexEditando !== null ? 'Actualizar' : 'Añadir'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.btnCancelarProducto} 
-                  onPress={handleCancelarEdicion}
-                  disabled={cargando}
-                >
-                  <Text style={styles.botonTexto}>Cancelar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* Tabla de productos */}
-          {productosSeleccionados.length > 0 ? (
-            <View style={styles.tablaProductos}>
-              <View style={styles.tablaHeader}>
-                <Text style={[styles.tablaHeaderText, { flex: 3 }]}>Producto</Text>
-                <Text style={[styles.tablaHeaderText, { flex: 1 }]}>Cant.</Text>
-                <Text style={[styles.tablaHeaderText, { flex: 1 }]}>Precio</Text>
-                <Text style={[styles.tablaHeaderText, { flex: 1 }]}>Total</Text>
-                <Text style={[styles.tablaHeaderText, { flex: 1 }]}>Estado</Text>
-                <Text style={[styles.tablaHeaderText, { flex: 1 }]}>Acc.</Text>
-              </View>
-
-              {productosSeleccionados.map((producto, index) => {
-                const prod = productos.find(p => p.id === producto.productos_id);
-                const tieneEntrega = producto.entregas && producto.entregas.length > 0;
-                const precioFormateado = Number(producto.precio_unitario_con_iva?.replace(/[^0-9.-]+/g, '') || 0);
-                const subtotalFormateado = Number(producto.subtotal?.replace(/[^0-9.-]+/g, '') || 0);
-                
-                return (
-                  <View key={`${producto.productos_id}-${index}`} style={styles.tablaFila}>
-                    <View style={[styles.tablaCelda, { flex: 3 }]}>
-                      <Text style={styles.tablaCeldaTexto} numberOfLines={2}>
-                        {producto.nombre || 'N/A'}
-                      </Text>
-                      {prod && (
-                        <Text style={styles.materialSubtext}>
-                          {prod.material}
-                        </Text>
-                      )}
-                    </View>
-                    
-                    <View style={[styles.tablaCelda, { flex: 1 }]}>
-                      <Text style={styles.tablaCeldaTexto}>
-                        {producto.cantidad || 0}
-                      </Text>
-                      <Text style={styles.unidadSubtext}>
-                        {prod?.material === 'POLIETILENO' ? 'kg' : 'mill'}
-                      </Text>
-                    </View>
-                    
-                    <Text style={[styles.tablaCeldaTexto, { flex: 1, textAlign: 'center' }]}>
-                      ${precioFormateado.toLocaleString('es-MX', {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 0,
-                      })}
-                    </Text>
-                    
-                    <Text style={[styles.tablaCeldaTexto, { flex: 1, textAlign: 'center', fontWeight: 'bold' }]}>
-                      ${subtotalFormateado.toLocaleString('es-MX', {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 0,
-                      })}
-                    </Text>
-                    
-                    <View style={[styles.tablaCelda, { flex: 1, alignItems: 'center' }]}>
-                      <View
-                        style={[
-                          styles.estatusPill,
-                          tieneEntrega ? styles.estatusEntregado : styles.estatusPendiente,
-                        ]}
-                      >
-                        <Text style={styles.estatusTexto}>
-                          {tieneEntrega ? 'OK' : 'Pend'}
-                        </Text>
-                      </View>
-                    </View>
-                    
-                    <View style={[styles.tablaCelda, { flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 4 }]}>
-                      <TouchableOpacity
-                        style={styles.accionBtn}
-                        onPress={() => onEditarProducto(producto, index)}
-                        disabled={cargando}
-                      >
-                        <Ionicons name="pencil" size={12} color="#6b7280" />
-                      </TouchableOpacity>
-                      
-                      <TouchableOpacity
-                        style={styles.accionBtnEliminar}
-                        onPress={() => handleEliminarProducto(index)}
-                        disabled={cargando}
-                      >
-                        <Ionicons name="trash" size={12} color="#ffffff" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          ) : (
-            <View style={styles.emptyProductos}>
-              <Text style={styles.emptyProductosText}>No hay productos agregados</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Resumen financiero */}
-        <View style={styles.resumenContainer}>
-          <View style={styles.resumenIzquierda}>
-            <View style={styles.resumenFila}>
-              <Text style={styles.resumenLabel}>Subtotal:</Text>
-              <Text style={styles.resumenValor}>
-                ${subtotalTotal.toLocaleString('es-MX', { 
-                  minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
-                })}
-              </Text>
-            </View>
-            <View style={styles.resumenFila}>
-              <Text style={styles.ivaLabel}>IVA (16%):</Text>
-              <Text style={styles.ivaValor}>
-                ${iva.toLocaleString('es-MX', { 
-                  minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
-                })}
-              </Text>
-            </View>
-            <View style={styles.resumenFila}>
-              <Text style={styles.resumenLabel}>Descuento:</Text>
-              <Text style={styles.resumenValor}>
-                ${(pedido.notas_venta?.descuento || 0).toLocaleString('es-MX', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </Text>
-            </View>
-            <View style={[styles.resumenFila, { borderTopWidth: 1, borderTopColor: '#4b5563', paddingTop: 8, marginTop: 8 }]}>
-              <Text style={styles.totalLabel}>Total:</Text>
-              <Text style={styles.totalValor}>
-                ${total.toLocaleString('es-MX', { 
-                  minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
-                })}
-              </Text>
-            </View>
-            <View style={styles.resumenFila}>
-              <Text style={styles.resumenLabel}>Pago pendiente:</Text>
-              <Text style={[styles.resumenValor, { color: pagado ? '#22c55e' : '#ef4444' }]}>
-                ${(pedido.notas_venta?.pago_pendiente || 0).toLocaleString('es-MX', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.resumenDerecha}>
-            <View style={styles.estadoIndicadores}>
-              <View style={styles.estadoFila}>
-                <View style={[styles.estadoBarra, { backgroundColor: pagado ? '#22c55e' : '#6b7280' }]} />
-                <Text style={styles.estadoTexto}>Depósitos</Text>
-              </View>
-              <View style={styles.estadoFila}>
-                <View style={[styles.estadoBarra, { backgroundColor: pedido.entregas?.length > 0 ? '#3b82f6' : '#6b7280' }]} />
-                <Text style={styles.estadoTexto}>Entrega</Text>
-              </View>
-              <View style={styles.estadoFila}>
-                <View style={[styles.estadoBarra, { backgroundColor: '#eab308' }]} />
-                <Text style={styles.estadoTexto}>Crédito</Text>
-              </View>
-            </View>
-
-            <View style={styles.botonesEstado}>
-              <TouchableOpacity 
-                style={[styles.btnEstado, styles.btnAbonar]} 
-                onPress={() => onAbonar(pedido.id)} 
-                disabled={cargando || pagado}
-              >
-                <Ionicons name="cash" size={14} color="#ffffff" />
-                <Text style={styles.btnEstadoTexto}>Abonar</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.btnEstado, pagado ? styles.btnPagado : styles.btnSinPagar]} 
-                disabled={true}
-              >
-                <Ionicons name={pagado ? "checkmark-circle" : "time"} size={14} color="#ffffff" />
-                <Text style={styles.btnEstadoTexto}>{pagado ? 'Pagado' : 'Pendiente'}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.btnEstado, pedido.entregas?.length > 0 ? styles.btnEntregado : styles.btnPendienteEntrega]}
-                onPress={() => !pedido.entregas?.length && onEntregar(pedido.id)}
-                disabled={cargando || pedido.entregas?.length > 0}
-              >
-                <Ionicons name={pedido.entregas?.length > 0 ? "cube" : "cube-outline"} size={14} color="#ffffff" />
-                <Text style={styles.btnEstadoTexto}>
-                  {pedido.entregas?.length > 0 ? 'Entregado' : 'Entregar'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-
-        {/* Botones de acción */}
-        <View style={styles.botonesAcciones}>
-          <TouchableOpacity
-            style={styles.btnImprimir}
-            onPress={exportarPDF}
-            disabled={cargando}
-          >
-            {cargando ? (
-              <ActivityIndicator color="#ffffff" size="small" />
-            ) : (
-              <>
-                <Ionicons name="print" size={16} color="#ffffff" />
-                <Text style={styles.btnImprimirTexto}>Imprimir</Text>
-              </>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.btnEditarPedido}
-            onPress={() => onEditarPedido(pedido)}
-            disabled={cargando}
-          >
-            <Ionicons name="settings" size={16} color="#ffffff" />
-            <Text style={styles.botonTexto}>Editar</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.btnEliminarPedido}
-            onPress={() => onEliminarPedido(pedido.id)}
-            disabled={cargando}
-          >
-            <Ionicons name="trash" size={16} color="#ffffff" />
-            <Text style={styles.botonTexto}>Eliminar</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </View>
-  );
-};
-
-// Componente principal Pedidos mejorado
 export default function Pedidos() {
   // Estados principales - TODOS LOS HOOKS DEBEN ESTAR AQUÍ AL INICIO
   const [pedidos, setPedidos] = useState([]);
@@ -765,6 +39,14 @@ export default function Pedidos() {
   const [aplicarIva, setAplicarIva] = useState(true);
   const [productoEditando, setProductoEditando] = useState(null);
   const [indexEditando, setIndexEditando] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [pedidoDetalleOriginal, setPedidoDetalleOriginal] = useState(null);
+  const [productosTemporales, setProductosTemporales] = useState([]);
+const [modoEdicion, setModoEdicion] = useState(false);
+const [cambiosPendientes, setCambiosPendientes] = useState(false);
+const [editandoManual, setEditandoManual] = useState(false);
+
 
   // Estados del formulario
   const [form, setForm] = useState({
@@ -782,42 +64,66 @@ export default function Pedidos() {
   });
 
   const [detalleForm, setDetalleForm] = useState({
-    productos_id: '',
-    cantidad: '',
-  });
+  productos_id: '',
+  cantidad: '',
+  precio_unitario_sin_iva: '',
+  precio_unitario_con_iva: '',
+  kg_por_millar: '',
+  importe_total: '',
+  ancho_cm: '',
+  largo_cm: '',
+  micraje_um: '',
+});
 
   const [productosSeleccionados, setProductosSeleccionados] = useState([]);
 
   // TODAS LAS FUNCIONES CON useCallback DEBEN ESTAR AQUÍ
   const resetDetalleForm = useCallback(() => {
-    setDetalleForm({
-      productos_id: '',
-      cantidad: '',
-    });
-  }, []);
+  setDetalleForm({
+    productos_id: '',
+    cantidad: '',
+    precio_unitario_sin_iva: '',
+    precio_unitario_con_iva: '',
+    kg_por_millar: '',
+    importe_total: '',
+    ancho_cm: '',
+    largo_cm: '',
+    micraje_um: '',
+  });
+  setEditandoManual(false); // Resetear modo manual
+}, []);
 
-  const resetForm = useCallback(() => {
-    setForm({
-      id: null,
-      notas_venta_id: '',
-      cliente_id: '',
-      productos_id: '',
-      cantidad: '',
-      fecha: new Date().toISOString().split('T')[0],
-      folio: '',
-      vendedor_id: '',
-      abono: '',
-      descuento: '0',
-      numero_factura: '',
-    });
-    setAplicarIva(true);
-    setProductosSeleccionados([]);
-    setMostrarFormulario(false);
-    setMostrarFormularioProducto(false);
-    resetDetalleForm();
-    setProductoEditando(null);
-    setIndexEditando(null);
-  }, [resetDetalleForm]);
+const resetForm = useCallback(() => {
+  console.log('Reseteando formulario');
+  
+  setForm({
+    id: null,
+    notas_venta_id: '',
+    cliente_id: '',
+    productos_id: '',
+    cantidad: '',
+    fecha: new Date().toISOString().split('T')[0],
+    folio: '',
+    vendedor_id: '',
+    abono: '',
+    descuento: '0',
+    numero_factura: '',
+  });
+  
+  setAplicarIva(true);
+  setProductosSeleccionados([]);
+  setMostrarFormulario(false);
+  setMostrarFormularioProducto(false);
+  resetDetalleForm();
+  setProductoEditando(null);
+  setIndexEditando(null);
+  setPedidoDetalleOriginal(null);
+  setModoEdicion(false);
+  setProductosTemporales([]);
+  setCambiosPendientes(false);
+  
+  console.log('Formulario reseteado completamente');
+}, [resetDetalleForm]);
 
   // Función de cálculo de subtotal
   const calculateSubtotal = useCallback((cantidad, productos_id) => {
@@ -850,7 +156,9 @@ export default function Pedidos() {
     let precioUnitario = 0;
 
     if (material === 'CELOFAN') {
-      precioUnitario = calcularPrecioUnitario(producto, precioPorKilo);
+      // Assuming calcularPrecioUnitario is defined elsewhere or passed as prop
+      // For now, keeping a placeholder or simplified logic
+      precioUnitario = precioPorKilo; // Simplified
     } else if (material === 'POLIETILENO') {
       precioUnitario = precioPorKilo;
     } else {
@@ -998,6 +306,25 @@ export default function Pedidos() {
     }
   }, []);
 
+  const iniciarModoEdicion = useCallback(() => {
+  setModoEdicion(true);
+  setProductosTemporales([...productosSeleccionados]);
+  setCambiosPendientes(false);
+}, [productosSeleccionados]);
+
+const cancelarEdicion = useCallback(() => {
+  setModoEdicion(false);
+  setProductosTemporales([]);
+  setCambiosPendientes(false);
+  setMostrarFormularioProducto(false);
+  resetDetalleForm();
+  setProductoEditando(null);
+  setIndexEditando(null);
+}, [resetDetalleForm]);
+
+
+
+
   const fetchClientes = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -1064,7 +391,15 @@ export default function Pedidos() {
   // Handlers
   const handleChange = useCallback((campo, valor) => {
     setForm((prev) => ({ ...prev, [campo]: valor }));
-  }, []);
+
+    // Si se cambia el cliente, actualizar el vendedor automáticamente
+    if (campo === 'cliente_id' && valor) {
+      const cliente = clientes.find(c => c.id === Number(valor));
+      if (cliente && cliente.vendedores_id) {
+        setForm(prev => ({ ...prev, vendedor_id: cliente.vendedores_id.toString() }));
+      }
+    }
+  }, [clientes]);
 
   const handleDetalleChange = useCallback((campo, valor) => {
     setDetalleForm((prev) => ({ ...prev, [campo]: valor }));
@@ -1084,6 +419,10 @@ export default function Pedidos() {
     setDetalleForm({
       productos_id: producto.productos_id.toString(),
       cantidad: producto.cantidad.toString(),
+      precio_unitario_sin_iva: '',
+      precio_unitario_con_iva: '',
+      kg_por_millar: '',
+      importe_total: '',
     });
     setMostrarFormularioProducto(true);
   }, []);
@@ -1095,290 +434,486 @@ export default function Pedidos() {
     setIndexEditando(null);
   }, [resetDetalleForm]);
 
-  const handleAñadirProducto = useCallback(() => {
-    const { productos_id, cantidad } = detalleForm;
+  // Función mejorada para añadir producto (en modo edición)
+const handleAñadirProductoTemporal = useCallback(() => {
+  const { productos_id, cantidad } = detalleForm;
 
-    if (!productos_id || !cantidad || Number(cantidad) <= 0) {
-      Alert.alert('Error', 'Debe seleccionar un producto y especificar una cantidad válida.');
-      return;
-    }
+  if (!productos_id || !cantidad || Number(cantidad) <= 0) {
+    Alert.alert('Error', 'Debe seleccionar un producto y especificar una cantidad válida.');
+    return;
+  }
 
-    const precios = calculateSubtotal(cantidad, productos_id);
-    const producto = productos.find((p) => p.id === Number(productos_id));
+  const precios = calculateSubtotal(cantidad, productos_id);
+  const producto = productos.find((p) => p.id === Number(productos_id));
 
-    if (!producto) {
-      Alert.alert('Error', 'Producto no encontrado.');
-      return;
-    }
+  if (!producto) {
+    Alert.alert('Error', 'Producto no encontrado.');
+    return;
+  }
 
-    if (indexEditando !== null) {
+  if (indexEditando !== null) {
+
+
       // Editar producto existente
-      const productoExistente = productosSeleccionados.find(
-        (p, idx) => Number(p.productos_id) === Number(productos_id) && idx !== indexEditando
-      );
+     const productoExistente = productosTemporales.find(
+      (p, idx) => Number(p.productos_id) === Number(productos_id) && idx !== indexEditando
+    );
 
-      if (productoExistente) {
-        Alert.alert('Error', 'Este producto ya está en la lista.');
-        return;
-      }
-
-      const productoEditado = {
-        productos_id: Number(productos_id),
-        cantidad: Number(cantidad),
-        precio_unitario_sin_iva: precios.precio_unitario_sin_iva,
-        precio_unitario_con_iva: precios.precio_unitario_con_iva,
-        subtotal: precios.subtotal,
-        nombre: producto.nombre,
-      };
-
-      setProductosSeleccionados((prev) => {
-        const nuevaLista = [...prev];
-        nuevaLista[indexEditando] = productoEditado;
-        return nuevaLista;
-      });
-
-      setProductoEditando(null);
-      setIndexEditando(null);
-    } else {
-      // Agregar nuevo producto
-      const productoExistente = productosSeleccionados.find(
-        (p) => Number(p.productos_id) === Number(productos_id)
-      );
-
-      if (productoExistente) {
-        Alert.alert('Error', 'Este producto ya está en la lista.');
-        return;
-      }
-
-      const nuevoProducto = {
-        productos_id: Number(productos_id),
-        cantidad: Number(cantidad),
-        precio_unitario_sin_iva: precios.precio_unitario_sin_iva,
-        precio_unitario_con_iva: precios.precio_unitario_con_iva,
-        subtotal: precios.subtotal,
-        nombre: producto.nombre,
-      };
-
-      setProductosSeleccionados((prev) => [...prev, nuevoProducto]);
-    }
-
-    resetDetalleForm();
-    setMostrarFormularioProducto(false);
-  }, [detalleForm, calculateSubtotal, productos, productosSeleccionados, indexEditando, resetDetalleForm]);
-
-  const handleEliminarProducto = useCallback((index) => {
-    setProductosSeleccionados((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const handleGuardar = useCallback(async () => {
-    const { cliente_id, fecha, vendedor_id, id, abono, descuento, numero_factura } = form;
-
-    if (!cliente_id || !fecha || !vendedor_id) {
-      Alert.alert('Campos requeridos', 'Cliente, fecha y vendedor son obligatorios.');
+    if (productoExistente) {
+      Alert.alert('Error', 'Este producto ya está en la lista.');
       return;
     }
 
-    const abonoNum = Number(abono) || 0;
-    const descuentoNum = Number(descuento) || 0;
+    const productoEditado = {
+      productos_id: Number(productos_id),
+      cantidad: Number(cantidad),
+      precio_unitario_sin_iva: precios.precio_unitario_sin_iva,
+      precio_unitario_con_iva: precios.precio_unitario_con_iva,
+      subtotal: precios.subtotal,
+      nombre: producto.nombre,
+    };
 
-    // Validar productos
-    const productosParaGuardar = [...productosSeleccionados];
+    setProductosTemporales((prev) => {
+      const nuevaLista = [...prev];
+      nuevaLista[indexEditando] = productoEditado;
+      return nuevaLista;
+    });
+
+    setProductoEditando(null);
+    setIndexEditando(null);
+  } else {
+
+
+   const productoExistente = productosTemporales.find(
+      (p) => Number(p.productos_id) === Number(productos_id)
+    );
+
+    if (productoExistente) {
+      Alert.alert('Error', 'Este producto ya está en la lista.');
+      return;
+    }
+
+    const nuevoProducto = {
+      productos_id: Number(productos_id),
+      cantidad: Number(cantidad),
+      precio_unitario_sin_iva: precios.precio_unitario_sin_iva,
+      precio_unitario_con_iva: precios.precio_unitario_con_iva,
+      subtotal: precios.subtotal,
+      nombre: producto.nombre,
+    };
+
+    setProductosTemporales((prev) => [...prev, nuevoProducto]);
+  }
+
+  setCambiosPendientes(true);
+  resetDetalleForm();
+  setMostrarFormularioProducto(false);
+}, [detalleForm, calculateSubtotal, productos, productosTemporales, indexEditando, resetDetalleForm]);
+
+
+ // Función para eliminar producto temporal
+const handleEliminarProductoTemporal = useCallback((index) => {
+  setProductosTemporales((prev) => prev.filter((_, i) => i !== index));
+  setCambiosPendientes(true);
+}, []);
+const handleGuardar = useCallback(async () => {
+  const { cliente_id, fecha, vendedor_id, id, abono, descuento, numero_factura } = form;
+
+  if (!cliente_id || !fecha || !vendedor_id) {
+    Alert.alert('Campos requeridos', 'Cliente, fecha y vendedor son obligatorios.');
+    return;
+  }
+
+  const abonoNum = Number(abono) || 0;
+  const descuentoNum = Number(descuento) || 0;
+
+  if (productosSeleccionados.length === 0) {
+    Alert.alert('Error', 'Debe agregar al menos un producto.');
+    return;
+  }
+
+  if (abonoNum < 0 || descuentoNum < 0) {
+    Alert.alert('Error', 'El abono y el descuento no pueden ser negativos.');
+    return;
+  }
+
+  try {
+    setCargando(true);
+
+    // Calcular totales
+    let subtotalTotal = productosSeleccionados.reduce((acc, p) => {
+      const subtotalLimpio = p.subtotal.toString().replace(/[^0-9.-]+/g, '');
+      return acc + Number(subtotalLimpio);
+    }, 0);
+
+    const ivaTotal = aplicarIva ? subtotalTotal * 0.16 : 0;
+    const totalFinal = subtotalTotal + ivaTotal - descuentoNum;
+
+    if (totalFinal <= 0) {
+      Alert.alert('Error', 'El total debe ser mayor a 0.');
+      return;
+    }
+
+    const notaVentaData = {
+      fecha,
+      clientes_id: Number(cliente_id),
+      subtotal: subtotalTotal,
+      iva: ivaTotal,
+      total: totalFinal,
+      descuento: descuentoNum,
+      numero_factura: numero_factura || null,
+    };
+
+    let notaVentaId;
     
-    if (form.productos_id && form.cantidad) {
-      const precios = calculateSubtotal(form.cantidad, form.productos_id);
-      const producto = productos.find(p => p.id === Number(form.productos_id));
+    // Determinar si estamos en modo edición
+    const esEdicion = form.notas_venta_id && form.notas_venta_id !== '' && form.notas_venta_id !== null;
+    
+    if (esEdicion) {
+      // MODO EDICIÓN
+      notaVentaId = Number(form.notas_venta_id);
       
-      productosParaGuardar.push({
-        productos_id: Number(form.productos_id),
-        cantidad: Number(form.cantidad),
-        precio_unitario_sin_iva: precios.precio_unitario_sin_iva,
-        precio_unitario_con_iva: precios.precio_unitario_con_iva,
-        subtotal: precios.subtotal,
-        nombre: producto?.nombre,
-      });
-    }
+      const { error: notaUpdateError } = await supabase
+        .from('notas_venta')
+        .update(notaVentaData)
+        .eq('id', notaVentaId);
 
-    if (productosParaGuardar.length === 0) {
-      Alert.alert('Error', 'Debe agregar al menos un producto.');
-      return;
-    }
-
-    if (abonoNum < 0 || descuentoNum < 0) {
-      Alert.alert('Error', 'El abono y el descuento no pueden ser negativos.');
-      return;
-    }
-
-    try {
-      setCargando(true);
-
-      // Calcular totales
-      let subtotalTotal = productosParaGuardar.reduce((acc, p) => {
-        const subtotalLimpio = p.subtotal.toString().replace(/[^0-9.-]+/g, '');
-        return acc + Number(subtotalLimpio);
-      }, 0);
-
-      const ivaTotal = aplicarIva ? subtotalTotal * 0.16 : 0;
-      const totalFinal = subtotalTotal + ivaTotal - descuentoNum;
-
-      if (totalFinal <= 0) {
-        Alert.alert('Error', 'El total debe ser mayor a 0.');
-        return;
+      if (notaUpdateError) {
+        throw notaUpdateError;
       }
 
-      const notaVentaData = {
-        fecha,
-        clientes_id: Number(cliente_id),
+      // Eliminar pedidos anteriores
+      await supabase
+        .from('pedidos')
+        .delete()
+        .eq('notas_venta_id', notaVentaId);
+        
+    } else {
+      // MODO CREACIÓN
+      const { data: notaData, error: notaError } = await supabase
+        .from('notas_venta')
+        .insert([notaVentaData])
+        .select('id')
+        .single();
+
+      if (notaError) {
+        throw notaError;
+      }
+      
+      notaVentaId = notaData.id;
+    }
+
+    // Actualizar vendedor del cliente
+    const cliente = clientes.find((c) => c.id === Number(cliente_id));
+    if (cliente && cliente.vendedores_id !== Number(vendedor_id)) {
+      await supabase
+        .from('clientes')
+        .update({ vendedores_id: Number(vendedor_id) })
+        .eq('id', cliente_id);
+    }
+
+    // Crear pedidos
+    const pedidosData = productosSeleccionados.map(p => ({
+      notas_venta_id: notaVentaId,
+      productos_id: Number(p.productos_id),
+      cantidad: Number(p.cantidad),
+      precio_kilo_venta: Number(p.precio_unitario_sin_iva.replace(/[^0-9.-]+/g, '')),
+      precio_unitario_venta: Number(p.precio_unitario_sin_iva.replace(/[^0-9.-]+/g, '')),
+      precio_iva: Number(p.precio_unitario_con_iva.replace(/[^0-9.-]+/g, '')),
+      importe: Number(p.subtotal.replace(/[^0-9.-]+/g, '')),
+    }));
+
+    const { error: pedidosError } = await supabase
+      .from('pedidos')
+      .insert(pedidosData);
+
+    if (pedidosError) {
+      throw pedidosError;
+    }
+
+    // Registrar abono inicial
+    if (abonoNum > 0) {
+      await supabase
+        .from('pagos')
+        .insert([{
+          notas_venta_id: notaVentaId,
+          fecha: new Date().toISOString().split('T')[0],
+          importe: abonoNum,
+          metodo_pago: 'efectivo',
+        }]);
+    }
+
+    Alert.alert('Éxito', esEdicion ? 'Pedido actualizado correctamente' : 'Pedido creado correctamente');
+    
+    // Si estábamos editando desde la vista de detalles, volver a ella
+    if (pedidoDetalleOriginal) {
+      await fetchPedidos();
+      const pedidoActualizado = pedidos.find(p => p.notas_venta_id === notaVentaId);
+      if (pedidoActualizado) {
+        setMostrarDetalles(pedidoActualizado);
+      }
+      setPedidoDetalleOriginal(null);
+    }
+    
+    resetForm();
+    await fetchPedidos();
+    
+  } catch (error) {
+    console.error('Error en handleGuardar:', error);
+    
+    let errorMessage = 'Error desconocido';
+    
+    if (error.code === '23505') {
+      errorMessage = 'Error de duplicación de ID. Por favor, intente nuevamente.';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    Alert.alert('Error', 'Error al guardar el pedido: ' + errorMessage);
+  } finally {
+    setCargando(false);
+  }
+}, [form, productosSeleccionados, aplicarIva, clientes, resetForm, fetchPedidos, pedidoDetalleOriginal, pedidos]);
+const handleEliminarProducto = useCallback((index) => {
+  setProductosSeleccionados((prev) => prev.filter((_, i) => i !== index));
+}, []);
+
+const handleAñadirProducto = useCallback(() => {
+  const { productos_id, cantidad } = detalleForm;
+
+  console.log('handleAñadirProducto: detalleForm', detalleForm);
+  console.log('handleAñadirProducto: productos_id', productos_id, 'cantidad', cantidad);
+
+  if (!productos_id || !cantidad || Number(cantidad) <= 0) {
+    Alert.alert('Error', 'Debe seleccionar un producto y especificar una cantidad válida.');
+    return;
+  }
+
+  const precios = calculateSubtotal(cantidad, productos_id);
+  const producto = productos.find((p) => p.id === Number(productos_id));
+
+  if (!producto) {
+    Alert.alert('Error', 'Producto no encontrado.');
+    return;
+  }
+
+  if (indexEditando !== null) {
+    // Editar producto existente
+    const productoExistente = productosSeleccionados.find(
+      (p, idx) => Number(p.productos_id) === Number(productos_id) && idx !== indexEditando
+    );
+
+    console.log('handleAñadirProducto (edit mode): productoExistente', productoExistente);
+
+    if (productoExistente) {
+      Alert.alert('Error', 'Este producto ya está en la lista.');
+      return;
+    }
+
+    const productoEditado = {
+      productos_id: Number(productos_id),
+      cantidad: Number(cantidad),
+      precio_unitario_sin_iva: precios.precio_unitario_sin_iva,
+      precio_unitario_con_iva: precios.precio_unitario_con_iva,
+      subtotal: precios.subtotal,
+      nombre: producto.nombre,
+    };
+
+    setProductosSeleccionados((prev) => {
+      const nuevaLista = [...prev];
+      nuevaLista[indexEditando] = productoEditado;
+      return nuevaLista;
+    });
+
+    setProductoEditando(null);
+    setIndexEditando(null);
+  } else {
+    // Agregar nuevo producto
+    const productoExistente = productosSeleccionados.find(
+      (p) => Number(p.productos_id) === Number(productos_id)
+    );
+
+    console.log('handleAñadirProducto (add mode): productoExistente', productoExistente);
+
+    if (productoExistente) {
+      Alert.alert('Error', 'Este producto ya está en la lista.');
+      return;
+    }
+
+    const nuevoProducto = {
+      productos_id: Number(productos_id),
+      cantidad: Number(cantidad),
+      precio_unitario_sin_iva: precios.precio_unitario_sin_iva,
+      precio_unitario_con_iva: precios.precio_unitario_con_iva,
+      subtotal: precios.subtotal,
+      nombre: producto.nombre,
+    };
+
+    setProductosSeleccionados((prev) => [...prev, nuevoProducto]);
+  }
+
+  resetDetalleForm();
+  setMostrarFormularioProducto(false);
+}, [detalleForm, calculateSubtotal, productos, productosSeleccionados, indexEditando, resetDetalleForm]);
+
+
+
+
+const guardarCambiosPedido = useCallback(async () => {
+  if (!mostrarDetalles || productosTemporales.length === 0) {
+    Alert.alert('Error', 'Debe tener al menos un producto en el pedido.');
+    return;
+  }
+
+  try {
+    setCargando(true);
+
+    const notaVentaId = mostrarDetalles.notas_venta_id;
+
+    // Calcular nuevos totales
+    let subtotalTotal = productosTemporales.reduce((acc, p) => {
+      const subtotalLimpio = p.subtotal.toString().replace(/[^0-9.-]+/g, '');
+      return acc + Number(subtotalLimpio);
+    }, 0);
+
+    const ivaTotal = subtotalTotal * 0.16;
+    const totalFinal = subtotalTotal + ivaTotal - (mostrarDetalles.notas_venta?.descuento || 0);
+
+    // Actualizar nota de venta
+    const { error: notaUpdateError } = await supabase
+      .from('notas_venta')
+      .update({
         subtotal: subtotalTotal,
         iva: ivaTotal,
         total: totalFinal,
-        descuento: descuentoNum,
-        numero_factura: numero_factura || null,
-      };
+      })
+      .eq('id', notaVentaId);
 
-      let notaVentaId;
-      
-      if (!id) {
-        // Crear nueva nota de venta
-        const { data: notaData, error: notaError } = await supabase
-          .from('notas_venta')
-          .insert([notaVentaData])
-          .select('id')
-          .single();
+    if (notaUpdateError) throw notaUpdateError;
 
-        if (notaError) throw notaError;
-        notaVentaId = notaData.id;
-      } else {
-        // Actualizar nota de venta existente
-        notaVentaId = form.notas_venta_id;
-        const { error: notaUpdateError } = await supabase
-          .from('notas_venta')
-          .update(notaVentaData)
-          .eq('id', notaVentaId);
+    // Eliminar pedidos anteriores
+    await supabase
+      .from('pedidos')
+      .delete()
+      .eq('notas_venta_id', notaVentaId);
 
-        if (notaUpdateError) throw notaUpdateError;
+    // Crear nuevos pedidos
+    const pedidosData = productosTemporales.map(p => ({
+      notas_venta_id: notaVentaId,
+      productos_id: Number(p.productos_id),
+      cantidad: Number(p.cantidad),
+      precio_kilo_venta: Number(p.precio_unitario_sin_iva.replace(/[^0-9.-]+/g, '')),
+      precio_unitario_venta: Number(p.precio_unitario_sin_iva.replace(/[^0-9.-]+/g, '')),
+      precio_iva: Number(p.precio_unitario_con_iva.replace(/[^0-9.-]+/g, '')),
+      importe: Number(p.subtotal.replace(/[^0-9.-]+/g, '')),
+    }));
 
-        // Eliminar pedidos anteriores
-        await supabase
-          .from('pedidos')
-          .delete()
-          .eq('notas_venta_id', notaVentaId);
-      }
+    const { error: pedidosError } = await supabase
+      .from('pedidos')
+      .insert(pedidosData);
 
-      // Actualizar vendedor del cliente
-      const cliente = clientes.find((c) => c.id === Number(cliente_id));
-      if (cliente && cliente.vendedores_id !== Number(vendedor_id)) {
-        await supabase
-          .from('clientes')
-          .update({ vendedores_id: Number(vendedor_id) })
-          .eq('id', cliente_id);
-      }
+    if (pedidosError) throw pedidosError;
 
-      // Crear pedidos
-      const pedidosData = productosParaGuardar.map(p => ({
-        notas_venta_id: notaVentaId,
-        productos_id: Number(p.productos_id),
-        cantidad: Number(p.cantidad),
-        precio_kilo_venta: Number(p.precio_unitario_sin_iva.replace(/[^0-9.-]+/g, '')),
-        precio_unitario_venta: Number(p.precio_unitario_sin_iva.replace(/[^0-9.-]+/g, '')),
-        precio_iva: Number(p.precio_unitario_con_iva.replace(/[^0-9.-]+/g, '')),
-        importe: Number(p.subtotal.replace(/[^0-9.-]+/g, '')),
-      }));
+    Alert.alert('Éxito', 'Pedido actualizado correctamente');
+    
+    // Actualizar estados
+    setProductosSeleccionados([...productosTemporales]);
+    setModoEdicion(false);
+    setProductosTemporales([]);
+    setCambiosPendientes(false);
+    
+    // Recargar datos
+    await fetchPedidos();
+    await fetchPedidosDetalle(notaVentaId);
 
-      const { error: pedidosError } = await supabase
-        .from('pedidos')
-        .insert(pedidosData);
+  } catch (error) {
+    console.error('Error al guardar cambios:', error);
+    Alert.alert('Error', 'Error al guardar los cambios: ' + (error.message || 'Error desconocido'));
+  } finally {
+    setCargando(false);
+  }
+}, [mostrarDetalles, productosTemporales, fetchPedidos, fetchPedidosDetalle]);
 
-      if (pedidosError) throw pedidosError;
 
-      // Registrar abono inicial
-      if (abonoNum > 0) {
-        await supabase
-          .from('pagos')
-          .insert([{
-            notas_venta_id: notaVentaId,
-            fecha: new Date().toISOString().split('T')[0],
-            importe: abonoNum,
-            metodo_pago: 'efectivo',
-          }]);
-      }
 
-      Alert.alert('Éxito', id ? 'Pedido actualizado correctamente' : 'Pedido creado correctamente');
-      resetForm();
+
+const handleEditarProductoTemporal = useCallback((producto, index) => {
+  setProductoEditando(producto);
+  setIndexEditando(index);
+  setDetalleForm({
+    productos_id: producto.productos_id.toString(),
+    cantidad: producto.cantidad.toString(),
+    precio_unitario_sin_iva: '',
+    precio_unitario_con_iva: '',
+    kg_por_millar: '',
+    importe_total: '',
+  });
+  setMostrarFormularioProducto(true);
+}, []);
+        
+
+
+// Debe estar DENTRO del componente, después de todos los useState
+const handleEliminar = useCallback(async (id) => {
+  if (!confirm('¿Estás seguro de que deseas eliminar este pedido?')) {
+    return;
+  }
+  
+  try {
+    setCargando(true);
+    console.log('Eliminando pedido ID:', id);
+    
+    const { error } = await supabase
+      .from('pedidos')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error:', error);
+      alert('Error: ' + error.message);
+    } else {
+      alert('Pedido eliminado');
       await fetchPedidos();
-    } catch (error) {
-      console.error('Error en handleGuardar:', error);
-      Alert.alert('Error', 'Error al guardar el pedido: ' + (error.message || 'Error desconocido'));
-    } finally {
-      setCargando(false);
     }
-  }, [form, productosSeleccionados, calculateSubtotal, productos, aplicarIva, clientes, resetForm, fetchPedidos]);
-
-  const handleEliminar = useCallback(async (id) => {
-    Alert.alert(
-      'Confirmar eliminación', 
-      '¿Estás seguro de que deseas eliminar este pedido completo?', 
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setCargando(true);
-
-              const pedido = pedidos.find((p) => p.id === id);
-              if (!pedido) throw new Error('Pedido no encontrado');
-
-              // Eliminar entregas asociadas
-              const { data: pedidosNota } = await supabase
-                .from('pedidos')
-                .select('id')
-                .eq('notas_venta_id', pedido.notas_venta_id);
-
-              for (const ped of pedidosNota || []) {
-                await supabase.from('entregas').delete().eq('pedidos_id', ped.id);
-              }
-
-              // Eliminar pedidos
-              await supabase
-                .from('pedidos')
-                .delete()
-                .eq('notas_venta_id', pedido.notas_venta_id);
-
-              // Eliminar pagos
-              await supabase
-                .from('pagos')
-                .delete()
-                .eq('notas_venta_id', pedido.notas_venta_id);
-
-              // Eliminar nota de venta
-              await supabase
-                .from('notas_venta')
-                .delete()
-                .eq('id', pedido.notas_venta_id);
-
-              Alert.alert('Éxito', 'Pedido eliminado correctamente');
-              await fetchPedidos();
-            } catch (error) {
-              console.error('Error al eliminar pedido:', error);
-              Alert.alert('Error', 'Error al eliminar el pedido: ' + error.message);
-            } finally {
-              setCargando(false);
-            }
-          },
-        },
-      ]
-    );
-  }, [pedidos, fetchPedidos]);
+  } catch (error) {
+    console.error('Error:', error);
+    alert('Error: ' + error.message);
+  } finally {
+    setCargando(false);
+  }
+}, [fetchPedidos]);
 
   const handleEntregar = useCallback(async (id) => {
     try {
       setCargando(true);
-      const pedido = pedidos.find((p) => p.id === id);
 
-      if (!pedido) {
-        throw new Error('Pedido no encontrado');
-      }
+      console.log('Eliminando movimientos de almacén...');
+      const { data: entregasData, error: entregasError } = await supabase
+              .from('entregas')
+              .select('id')
+              .in('pedidos_id', await supabase
+                .from('pedidos')
+                .select('id')
+                .eq('notas_venta_id', pedido.notas_venta_id)
+                .then(res => res.data?.map(p => p.id) || [])
+              );
+
+            if (entregasError) {
+              console.error('Error al obtener entregas:', entregasError);
+            }
+
+            
+
+      // Buscar el pedido y su nota de venta
+            const pedido = pedidos.find((p) => p.id === id);
+            if (!pedido) {
+              throw new Error('Pedido no encontrado');
+            }
+
+            console.log('Pedido encontrado:', {
+              pedidoId: pedido.id,
+              notaVentaId: pedido.notas_venta_id
+            });
 
       const unidades = pedido.productos?.material === 'POLIETILENO' ? 'kilos' : 'millares';
 
@@ -1486,31 +1021,53 @@ export default function Pedidos() {
     }
   }, [pedidos, fetchPedidos]);
 
-  const editarPedido = useCallback((pedido) => {
-    if (!pedido?.notas_venta?.clientes) {
-      Alert.alert('Error', 'Información del pedido incompleta');
-      return;
-    }
+ const editarPedido = useCallback((pedido) => {
+  if (!pedido?.notas_venta?.clientes) {
+    Alert.alert('Error', 'Información del pedido incompleta');
+    return;
+  }
 
-    setForm({
-      id: pedido.id,
-      notas_venta_id: pedido.notas_venta_id,
-      cliente_id: pedido.notas_venta.clientes.id?.toString() || '',
-      productos_id: '',
-      cantidad: '',
-      fecha: pedido.notas_venta.fecha || new Date().toISOString().split('T')[0],
-      folio: pedido.id?.toString() || '',
-      vendedor_id: pedido.notas_venta.clientes.vendedores_id?.toString() || '',
-      abono: '',
-      descuento: pedido.notas_venta.descuento?.toString() || '0',
-      numero_factura: pedido.notas_venta.numero_factura || '',
-    });
-    
-    fetchPedidosDetalle(pedido.notas_venta_id);
-    setAplicarIva((pedido.notas_venta.iva || 0) > 0);
-    setMostrarFormulario(true);
-    setMostrarDetalles(null);
-  }, [fetchPedidosDetalle]);
+  console.log('Editando pedido:', {
+    pedidoId: pedido.id,
+    notaVentaId: pedido.notas_venta_id,
+    clienteId: pedido.notas_venta.clientes.id
+  });
+
+  // Guardar referencia del pedido si venimos desde detalles
+  if (mostrarDetalles) {
+    setPedidoDetalleOriginal(pedido);
+  }
+
+  // Configurar el formulario para modo edición
+  setForm({
+    id: pedido.id, // ID del pedido individual
+    notas_venta_id: pedido.notas_venta_id, // ID de la nota de venta - CLAVE PARA IDENTIFICAR EDICIÓN
+    cliente_id: pedido.notas_venta.clientes.id?.toString() || '',
+    productos_id: '',
+    cantidad: '',
+    fecha: pedido.notas_venta.fecha || new Date().toISOString().split('T')[0],
+    folio: pedido.id?.toString() || '',
+    vendedor_id: pedido.notas_venta.clientes.vendedores_id?.toString() || '',
+    abono: '',
+    descuento: pedido.notas_venta.descuento?.toString() || '0',
+    numero_factura: pedido.notas_venta.numero_factura || '',
+  });
+  
+  console.log('Formulario configurado para edición:', {
+    notas_venta_id: pedido.notas_venta_id,
+    cliente_id: pedido.notas_venta.clientes.id?.toString()
+  });
+  
+  // Cargar los productos existentes de esta nota de venta
+  fetchPedidosDetalle(pedido.notas_venta_id);
+  
+  // Configurar IVA basándose en la nota de venta existente
+  setAplicarIva((pedido.notas_venta.iva || 0) > 0);
+  
+  // Mostrar el formulario
+  setMostrarFormulario(true);
+  setMostrarDetalles(null);
+}, [fetchPedidosDetalle, mostrarDetalles]);
 
   const handleVerDetalles = useCallback((pedido) => {
     if (!pedido?.productos || !pedido?.notas_venta) {
@@ -1521,13 +1078,46 @@ export default function Pedidos() {
   }, []);
 
   const handleVolver = useCallback(() => {
-    setMostrarDetalles(null);
-    setMostrarFormularioProducto(false);
-    setProductosSeleccionados([]);
-    setProductoEditando(null);
-    setIndexEditando(null);
-    resetDetalleForm();
-  }, [resetDetalleForm]);
+    console.log('Volviendo...', { 
+      mostrarFormulario, 
+      mostrarDetalles: !!mostrarDetalles,
+      pedidoDetalleOriginal: !!pedidoDetalleOriginal 
+    });
+
+
+
+
+
+
+    // Si estamos volviendo desde el formulario y teníamos un pedido original
+     if (mostrarFormulario && pedidoDetalleOriginal) {
+    console.log('Volviendo a detalles desde formulario');
+    setMostrarDetalles(pedidoDetalleOriginal);
+    setPedidoDetalleOriginal(null);
+    resetForm();
+  } else if (mostrarFormulario) {
+    // Volver desde formulario a lista principal
+    console.log('Volviendo a lista principal desde formulario');
+      setMostrarFormulario(false);
+      setMostrarDetalles(null);
+      setPedidoDetalleOriginal(null);
+      resetForm();
+      resetDetalleForm();
+  } else {
+    
+      // Comportamiento normal
+      console.log('Volviendo a lista principal desde detalles');
+      setMostrarDetalles(null);
+      setMostrarFormularioProducto(false);
+      setProductosSeleccionados([]);
+      setProductoEditando(null);
+      setIndexEditando(null);
+      setModoEdicion(false);
+      setProductosTemporales([]);
+      setCambiosPendientes(false);
+      resetDetalleForm();
+    }
+  }, [mostrarFormulario, pedidoDetalleOriginal, resetForm, resetDetalleForm]);
 
   // Funciones de exportación
   const exportarExcel = useCallback(async () => {
@@ -1679,9 +1269,9 @@ export default function Pedidos() {
             <td>${p.productos?.nombre || 'N/A'}</td>
             <td>${p.productos?.material || 'N/A'}</td>
             <td>${p.cantidad || 0} ${unidades}</td>
-            <td>$${(p.precio_iva || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            <td>$${(p.importe || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            <td>$${(p.notas_venta?.pago_pendiente || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>${(p.precio_iva || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>${(p.importe || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>${(p.notas_venta?.pago_pendiente || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             <td style="color: ${entregado ? '#22c55e' : '#eab308'}">${entregado ? 'Entregado' : 'Pendiente'}</td>
             <td style="color: ${pagado ? '#22c55e' : '#ef4444'}">${pagado ? 'Pagado' : 'Pendiente'}</td>
           </tr>
@@ -1721,7 +1311,7 @@ export default function Pedidos() {
                 text-align: left; 
               }
               th { 
-                background-color: #3b82f6; 
+                background-color: '#3b82f6'; 
                 color: white;
                 font-weight: bold; 
               }
@@ -1729,7 +1319,7 @@ export default function Pedidos() {
                 font-weight: bold; 
                 margin-top: 20px; 
                 text-align: center;
-                background-color: #f3f4f6;
+                background-color: '#f3f4f6';
                 padding: 20px;
                 border-radius: 8px;
               }
@@ -1737,8 +1327,8 @@ export default function Pedidos() {
                 margin-top: 30px;
                 text-align: center;
                 font-size: 12px;
-                color: #6b7280;
-                border-top: 1px solid #e5e7eb;
+                color: '#6b7280';
+                border-top: 1px solid '#e5e7eb';
                 padding-top: 15px;
               }
               @page { size: landscape; }
@@ -1774,8 +1364,8 @@ export default function Pedidos() {
             
             <div class="total">
               <p><strong>Total de pedidos:</strong> ${pedidosFiltrados.length}</p>
-              <p><strong>Importe total:</strong> $${totalGeneral.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-              <p><strong>Total pendiente de pago:</strong> $${totalPendiente.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p><strong>Importe total:</strong> ${totalGeneral.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p><strong>Total pendiente de pago:</strong> ${totalPendiente.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             </div>
             
             <div class="footer">
@@ -1816,10 +1406,28 @@ export default function Pedidos() {
     });
   })();
 
+  // Paginación
+  const totalPages = Math.ceil(pedidosFiltrados.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const pedidosPaginados = pedidosFiltrados.slice(startIndex, endIndex);
+
   // Cargar datos iniciales
   useEffect(() => {
     fetchDatos();
   }, [fetchDatos]);
+
+  // Efecto para actualizar vendedor cuando se selecciona un cliente
+  useEffect(() => {
+    if (form.cliente_id) {
+      const cliente = clientes.find(c => c.id === Number(form.cliente_id));
+      if (cliente && cliente.vendedores_id) {
+        setForm(prev => ({ ...prev, vendedor_id: cliente.vendedores_id.toString() }));
+      }
+    }
+  }, [form.cliente_id, clientes]);
+
+
 
   // Theme para inputs
   const inputTheme = {
@@ -1858,6 +1466,15 @@ export default function Pedidos() {
         handleCancelarEdicion={handleCancelarEdicion}
         productoEditando={productoEditando}
         indexEditando={indexEditando}
+          modoEdicion={modoEdicion}
+  productosTemporales={productosTemporales}
+  cambiosPendientes={cambiosPendientes}
+  iniciarModoEdicion={iniciarModoEdicion}
+  cancelarEdicion={cancelarEdicion}
+  guardarCambiosPedido={guardarCambiosPedido}
+  handleAñadirProductoTemporal={handleAñadirProductoTemporal}
+  handleEliminarProductoTemporal={handleEliminarProductoTemporal}
+  handleEditarProductoTemporal={handleEditarProductoTemporal}
       />
     );
   }
@@ -1871,22 +1488,19 @@ export default function Pedidos() {
         return acc + Number(subtotalLimpio);
       }, 0);
       
-      if (form.productos_id && form.cantidad) {
-        const calc = calculateSubtotal(form.cantidad, form.productos_id);
-        subtotal += Number(calc.subtotal.replace(/[^0-9.-]+/g, ''));
-      }
-      
       const iva = aplicarIva ? subtotal * 0.16 : 0;
       const total = subtotal + iva - Number(form.descuento || 0);
       
       return { subtotal, iva, total };
     })();
 
+    const productoSeleccionadoForm = productos.find(p => p.id === Number(detalleForm.productos_id));
+
     return (
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>{form.id ? 'Editar Pedido' : 'Nuevo Pedido'}</Text>
-          <TouchableOpacity onPress={resetForm} style={styles.btnVolver}>
+          <TouchableOpacity onPress={handleVolver} style={styles.btnVolver}>
             <Ionicons name="arrow-back" size={16} color="#ffffff" />
             <Text style={styles.botonTexto}>Volver</Text>
           </TouchableOpacity>
@@ -1973,16 +1587,7 @@ export default function Pedidos() {
               </View>
             </View>
 
-            <PaperInput
-              label="Número de Factura (opcional)"
-              value={form.numero_factura}
-              onChangeText={(text) => handleChange('numero_factura', text)}
-              mode="outlined"
-              style={styles.input}
-              theme={inputTheme}
-              textColor="#ffffff"
-              disabled={cargando}
-            />
+            
           </View>
 
           {/* Productos del pedido */}
@@ -2029,18 +1634,158 @@ export default function Pedidos() {
                   </View>
                   <View style={styles.col2}>
                     <PaperInput
-                      label="Cantidad"
-                      value={detalleForm.cantidad}
-                      onChangeText={(text) => handleDetalleChange('cantidad', text)}
-                      mode="outlined"
-                      style={styles.input}
-                      keyboardType="numeric"
-                      theme={inputTheme}
-                      textColor="#ffffff"
-                      disabled={cargando}
-                    />
+  label="Cantidad"
+  value={detalleForm.cantidad}
+  onChangeText={(text) => {
+    handleDetalleChange('cantidad', text);
+
+    // Calcular inmediatamente si hay producto seleccionado
+    if (detalleForm.productos_id && text) {
+      const precios = calculateSubtotal(text, detalleForm.productos_id);
+      handleDetalleChange('precio_unitario_sin_iva', precios.precio_unitario_sin_iva);
+      handleDetalleChange('precio_unitario_con_iva', precios.precio_unitario_con_iva);
+      handleDetalleChange('importe_total', precios.subtotal);
+      // kg_por_millar is not directly returned by calculateSubtotal, so it might need a separate calculation or be removed if not used.
+      // For now, I'll set it to '0.00' as it was simplified before.
+      handleDetalleChange('kg_por_millar', '0.00');
+    }
+  }}
+  mode="outlined"
+  style={styles.input}
+  keyboardType="numeric"
+  theme={inputTheme}
+  textColor="#ffffff"
+  disabled={cargando}
+/>
                   </View>
                 </View>
+
+                {/* Información adicional del producto */}
+{productoSeleccionadoForm && (
+  <View style={styles.productoInfoContainer}>
+    <Text style={styles.productoInfoTitle}>Información del Producto (Editable)</Text>
+    
+    <View style={styles.row2}>
+      <View style={styles.col2}>
+        <PaperInput
+          label="Ancho (cm)"
+          value={detalleForm.ancho_cm || productoSeleccionadoForm.ancho_cm?.toString() || ''}
+          onChangeText={(text) => {
+            setEditandoManual(true);
+            handleDetalleChange('ancho_cm', text);
+          }}
+          mode="outlined"
+          style={styles.input}
+          keyboardType="numeric"
+          theme={inputTheme}
+          textColor="#ffffff"
+          disabled={cargando}
+        />
+      </View>
+      
+      <View style={styles.col2}>
+        <PaperInput
+          label="Largo (cm)"
+          value={detalleForm.largo_cm || productoSeleccionadoForm.largo_cm?.toString() || ''}
+          onChangeText={(text) => {
+            setEditandoManual(true);
+            handleDetalleChange('largo_cm', text);
+          }}
+          mode="outlined"
+          style={styles.input}
+          keyboardType="numeric"
+          theme={inputTheme}
+          textColor="#ffffff"
+          disabled={cargando}
+        />
+      </View>
+    </View>
+
+    <View style={styles.row2}>
+      <View style={styles.col2}>
+        <PaperInput
+          label="Micraje (μm)"
+          value={detalleForm.micraje_um || productoSeleccionadoForm.micraje_um?.toString() || ''}
+          onChangeText={(text) => {
+            setEditandoManual(true);
+            handleDetalleChange('micraje_um', text);
+          }}
+          mode="outlined"
+          style={styles.input}
+          keyboardType="numeric"
+          theme={inputTheme}
+          textColor="#ffffff"
+          disabled={cargando}
+        />
+      </View>
+
+      <View style={styles.col2}>
+        <PaperInput
+  label="Precio/Kilo"
+  value="110.00"
+  mode="outlined"
+  style={styles.input}
+  theme={inputTheme}
+  textColor="#ffffff"
+  disabled={true}
+  editable={false}
+/>
+      </View>
+    </View>
+
+    <View style={styles.row2}>
+      <View style={styles.col2}>
+        <PaperInput
+          label="Precio con IVA"
+          value={detalleForm.precio_unitario_con_iva || '0.00'}
+          onChangeText={(text) => {
+            setEditandoManual(true);
+            handleDetalleChange('precio_unitario_con_iva', text);
+          }}
+          mode="outlined"
+          style={styles.input}
+          keyboardType="numeric"
+          theme={inputTheme}
+          textColor="#ffffff"
+          disabled={cargando}
+        />
+      </View>
+
+      <View style={styles.col2}>
+        <PaperInput
+          label="Kg por millar"
+          value={detalleForm.kg_por_millar || '0.00'}
+          onChangeText={(text) => handleDetalleChange('kg_por_millar', text)}
+          mode="outlined"
+          style={styles.input}
+          keyboardType="numeric"
+          theme={inputTheme}
+          textColor="#ffffff"
+          disabled={cargando}
+        />
+      </View>
+    </View>
+
+    <PaperInput
+      label="Importe Total"
+      value={detalleForm.importe_total || '0.00'}
+      onChangeText={(text) => {
+        setEditandoManual(true);
+        handleDetalleChange('importe_total', text);
+      }}
+      mode="outlined"
+      style={[styles.input, { backgroundColor: '#4b5563' }]}
+      keyboardType="numeric"
+      theme={{
+        ...inputTheme,
+        colors: { ...inputTheme.colors, primary: '#3b82f6', text: '#60a5fa' }
+      }}
+      textColor="#60a5fa"
+      disabled={cargando}
+    />
+
+  </View>
+)}
 
                 <View style={styles.botonesFormularioProducto}>
                   <TouchableOpacity
@@ -2068,7 +1813,7 @@ export default function Pedidos() {
             )}
 
             {/* Lista de productos seleccionados */}
-            {productosSeleccionados.length > 0 ? (
+            {(modoEdicion ? productosTemporales : productosSeleccionados).length > 0 ? (
               <View style={styles.tablaProductos}>
                 <View style={styles.tablaHeader}>
                   <Text style={[styles.tablaHeaderText, { flex: 3 }]}>Producto</Text>
@@ -2078,7 +1823,7 @@ export default function Pedidos() {
                   <Text style={[styles.tablaHeaderText, { flex: 1 }]}>Acc.</Text>
                 </View>
 
-                {productosSeleccionados.map((producto, index) => {
+                {(modoEdicion ? productosTemporales : productosSeleccionados).map((producto, index) => {
                   const prod = productos.find(p => p.id === producto.productos_id);
                   const precioFormateado = Number(producto.precio_unitario_con_iva?.replace(/[^0-9.-]+/g, '') || 0);
                   const subtotalFormateado = Number(producto.subtotal?.replace(/[^0-9.-]+/g, '') || 0);
@@ -2140,42 +1885,6 @@ export default function Pedidos() {
                 <Text style={styles.emptyProductosText}>No hay productos agregados</Text>
               </View>
             )}
-
-            {/* Producto adicional directo */}
-            <View style={styles.section}>
-              <Text style={styles.subTitle}>Agregar producto rápido (opcional)</Text>
-              <View style={styles.row2}>
-                <View style={styles.col2}>
-                  <Text style={styles.label}>Producto</Text>
-                  <View style={styles.pickerContainer}>
-                    <Picker
-                      selectedValue={form.productos_id}
-                      onValueChange={(value) => handleChange('productos_id', value)}
-                      style={styles.picker}
-                      enabled={!cargando}
-                    >
-                      <Picker.Item label="Seleccionar producto" value="" />
-                      {productos.map((p) => (
-                        <Picker.Item key={p.id} label={`${p.nombre} (${p.material})`} value={p.id.toString()} />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
-                <View style={styles.col2}>
-                  <PaperInput
-                    label="Cantidad"
-                    value={form.cantidad}
-                    onChangeText={(text) => handleChange('cantidad', text)}
-                    mode="outlined"
-                    style={styles.input}
-                    keyboardType="numeric"
-                    theme={inputTheme}
-                    textColor="#ffffff"
-                    disabled={cargando}
-                  />
-                </View>
-              </View>
-            </View>
           </View>
 
           {/* Configuración adicional */}
@@ -2183,33 +1892,32 @@ export default function Pedidos() {
             <Text style={styles.subTitle}>Configuración Adicional</Text>
             
             <View style={styles.row2}>
-              <View style={styles.col2}>
-                <PaperInput
-                  label="Abono inicial (MX$) (opcional)"
-                  value={form.abono}
-                  onChangeText={(text) => handleChange('abono', text)}
-                  mode="outlined"
-                  style={styles.input}
-                  keyboardType="numeric"
-                  theme={inputTheme}
-                  textColor="#ffffff"
-                  disabled={cargando}
-                />
-              </View>
-              <View style={styles.col2}>
-                <PaperInput
-                  label="Descuento (MX$)"
-                  value={form.descuento}
-                  onChangeText={(text) => handleChange('descuento', text)}
-                  mode="outlined"
-                  style={styles.input}
-                  keyboardType="numeric"
-                  theme={inputTheme}
-                  textColor="#ffffff"
-                  disabled={cargando}
-                />
-              </View>
-            </View>
+  <View style={styles.col2}>
+    <PaperInput
+      label="Número de Factura (opcional)"
+      value={form.numero_factura}
+      onChangeText={(text) => handleChange('numero_factura', text)}
+      mode="outlined"
+      style={styles.input}
+      theme={inputTheme}
+      textColor="#ffffff"
+      disabled={cargando}
+    />
+  </View>
+  <View style={styles.col2}>
+    <PaperInput
+      label="Descuento (%)"
+      value={form.descuento}
+      onChangeText={(text) => handleChange('descuento', text)}
+      mode="outlined"
+      style={styles.input}
+      keyboardType="numeric"
+      theme={inputTheme}
+      textColor="#ffffff"
+      disabled={cargando}
+    />
+  </View>
+</View>
 
             <View style={styles.facturaRow}>
               <TouchableOpacity
@@ -2224,7 +1932,7 @@ export default function Pedidos() {
           </View>
 
           {/* Resumen del pedido */}
-          {(productosSeleccionados.length > 0 || (form.productos_id && form.cantidad)) && (
+          {productosSeleccionados.length > 0 && (
             <View style={styles.previewCalculos}>
               <Text style={styles.subTitle}>Resumen del Pedido</Text>
               
@@ -2232,7 +1940,7 @@ export default function Pedidos() {
                 <View style={styles.calculoItem}>
                   <Text style={styles.calculoLabel}>Total de productos:</Text>
                   <Text style={styles.calculoValor}>
-                    {productosSeleccionados.length + (form.productos_id && form.cantidad ? 1 : 0)}
+                    {productosSeleccionados.length}
                   </Text>
                 </View>
                 
@@ -2300,7 +2008,7 @@ export default function Pedidos() {
             
             <TouchableOpacity 
               style={styles.btnCancelarProducto} 
-              onPress={resetForm}
+              onPress={handleVolver}
               disabled={cargando}
             >
               <Ionicons name="close" size={16} color="#ffffff" />
@@ -2386,13 +2094,13 @@ export default function Pedidos() {
 
       {/* Lista de pedidos */}
       <ScrollView style={styles.lista} showsVerticalScrollIndicator={false}>
-        {pedidosFiltrados.length === 0 ? (
+        {pedidosPaginados.length === 0 ? (
           <EmptyState 
             message="No hay pedidos registrados" 
             hasSearch={busqueda.length > 0} 
           />
         ) : (
-          pedidosFiltrados.map((p) => {
+          pedidosPaginados.map((p) => {
             const vendedorPedido = vendedores.find((v) => v.id === p.notas_venta?.clientes?.vendedores_id);
             const pagadoPedido = (p.notas_venta?.pago_pendiente || 0) <= 0;
             const entregadoPedido = p.entregas?.length > 0;
@@ -2420,41 +2128,7 @@ export default function Pedidos() {
                     </View>
 
                     {/* Información de precios mejorada */}
-                    <View style={styles.preciosInfo}>
-                      <View style={styles.precioRow}>
-                        <Text style={styles.precioLabel}>Cantidad:</Text>
-                        <Text style={styles.precioValor}>
-                          {p.cantidad || 0} {p.productos?.material === 'POLIETILENO' ? 'kg' : 'mill'}
-                        </Text>
-                      </View>
-                      <View style={styles.precioRow}>
-                        <Text style={styles.precioLabel}>Precio Unit.:</Text>
-                        <Text style={styles.precioValor}>
-                          ${Number(p.precio_iva || 0).toLocaleString('es-MX', {
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0,
-                          })}
-                        </Text>
-                      </View>
-                      <View style={styles.precioRow}>
-                        <Text style={styles.precioLabel}>Importe:</Text>
-                        <Text style={styles.precioValorDestacado}>
-                          ${Number(p.importe || 0).toLocaleString('es-MX', {
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0,
-                          })}
-                        </Text>
-                      </View>
-                      <View style={styles.precioRow}>
-                        <Text style={styles.precioLabel}>Pendiente:</Text>
-                        <Text style={[styles.precioValor, { color: pagadoPedido ? '#22c55e' : '#ef4444' }]}>
-                          ${Number(p.notas_venta?.pago_pendiente || 0).toLocaleString('es-MX', {
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0,
-                          })}
-                        </Text>
-                      </View>
-                    </View>
+                   
                   </View>
 
                   {/* Indicadores de estado */}
@@ -2530,706 +2204,16 @@ export default function Pedidos() {
           })
         )}
       </ScrollView>
+
+      {/* Paginación */}
+      {pedidosFiltrados.length > itemsPerPage && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={pedidosFiltrados.length}
+          onPageChange={setCurrentPage}
+        />
+      )}
     </View>
   );
 }
-
-// Estilos mejorados
-const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#0f172a', 
-    padding: 16 
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: { 
-    color: '#ffffff', 
-    fontSize: 24, 
-    fontWeight: 'bold' 
-  },
-  buscador: {
-    flexDirection: 'row',
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#334155',
-    minHeight: 50,
-  },
-  inputText: {
-    color: '#ffffff',
-    flex: 1,
-    paddingVertical: 12,
-    marginLeft: 12,
-    fontSize: 16,
-  },
-  botoneraDerecha: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-    marginBottom: 16,
-    flexWrap: 'wrap',
-  },
-  botonAgregar: {
-    backgroundColor: '#22c55e',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  btnExportarExcel: {
-    backgroundColor: '#3b82f6',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  btnExportarPDF: {
-    backgroundColor: '#f59e0b',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  btnEliminar: {
-    backgroundColor: '#ef4444',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  btnEditar: {
-    backgroundColor: '#eab308',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  btnAbonar: {
-    backgroundColor: '#22c55e',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  btnEntregar: {
-    backgroundColor: '#3b82f6',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  btnVerDetalles: {
-    backgroundColor: '#6b7280',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  btnVolver: {
-    backgroundColor: '#6b7280',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  botonTexto: { 
-    color: '#ffffff', 
-    fontWeight: '600', 
-    fontSize: 14 
-  },
-  lista: { 
-    flex: 1 
-  },
-  card: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#334155',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-  },
-  cardGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
-  },
-  infoCompleta: {
-    flex: 3,
-    paddingRight: 16,
-  },
-  nombre: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 6,
-  },
-  info: {
-    color: '#cbd5e1',
-    fontSize: 14,
-    marginTop: 4,
-  },
-  label: {
-    color: '#94a3b8',
-    fontSize: 12,
-    fontWeight: '500',
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  materialTags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 4,
-    marginBottom: 10,
-  },
-  materialTag: {
-    backgroundColor: '#4b5563',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
-  },
-  materialTagText: {
-    fontSize: 12,
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  tipoMaterialTag: {
-    backgroundColor: '#374151',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
-  },
-  tipoMaterialTagText: {
-    fontSize: 12,
-    color: '#d1d5db',
-    fontWeight: '500',
-  },
-  preciosInfo: {
-    marginTop: 12,
-    backgroundColor: '#334155',
-    borderRadius: 12,
-    padding: 12,
-  },
-  precioRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  precioLabel: {
-    fontSize: 12,
-    color: '#cbd5e1',
-    fontWeight: '500',
-  },
-  precioValor: {
-    fontSize: 12,
-    color: '#ffffff',
-    fontWeight: 'bold',
-  },
-  precioValorDestacado: {
-    fontSize: 13,
-    color: '#3b82f6',
-    fontWeight: 'bold',
-  },
-  statusIndicators: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statusBar: {
-    width: 28,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
-  statusLabel: {
-    fontSize: 11,
-    color: '#cbd5e1',
-    fontWeight: '500',
-  },
-  botonesCard: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'flex-start',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-  },
-  loadingText: {
-    color: '#ffffff',
-    marginTop: 12,
-    fontSize: 16,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-  },
-  emptyText: {
-    color: '#cbd5e1',
-    fontSize: 16,
-    textAlign: 'center',
-    marginTop: 16,
-  },
-  detallesContainer: {
-    flex: 1,
-  },
-  formulario: {
-    flex: 1,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  subTitle: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 12,
-  },
-  infoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    backgroundColor: '#334155',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 16,
-  },
-  infoItem: {
-    flex: 1,
-    minWidth: '45%',
-  },
-  infoLabel: {
-    color: '#cbd5e1',
-    fontSize: 12,
-    marginBottom: 4,
-    fontWeight: '500',
-  },
-  infoValue: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  productosSection: {
-    marginBottom: 20,
-  },
-  productosHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  btnAnadirProducto: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#6b7280',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  btnAnadirTexto: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  formularioProducto: {
-    backgroundColor: '#4b5563',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  botonesFormularioProducto: {
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'flex-end',
-    marginTop: 16,
-  },
-  btnGuardarProducto: {
-    backgroundColor: '#3b82f6',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  btnCancelarProducto: {
-    backgroundColor: '#6b7280',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  tablaProductos: {
-    backgroundColor: '#334155',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  tablaHeader: {
-    flexDirection: 'row',
-    backgroundColor: '#4b5563',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-  },
-  tablaHeaderText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  tablaFila: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#4b5563',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-  },
-  tablaCelda: {
-    justifyContent: 'center',
-  },
-  tablaCeldaTexto: {
-    color: '#cbd5e1',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  materialSubtext: {
-    fontSize: 10,
-    color: '#94a3b8',
-    fontStyle: 'italic',
-  },
-  unidadSubtext: {
-    fontSize: 10,
-    color: '#94a3b8',
-    textAlign: 'center',
-  },
-  estatusPill: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    minWidth: 60,
-    alignItems: 'center',
-  },
-  estatusTexto: {
-    fontSize: 10,
-    color: '#ffffff',
-    fontWeight: 'bold',
-  },
-  estatusEntregado: {
-    backgroundColor: '#22c55e',
-  },
-  estatusPendiente: {
-    backgroundColor: '#eab308',
-  },
-  accionBtn: {
-    padding: 6,
-    borderRadius: 6,
-    backgroundColor: '#374151',
-  },
-  accionBtnEliminar: {
-    padding: 6,
-    borderRadius: 6,
-    backgroundColor: '#ef4444',
-  },
-  emptyProductos: {
-    backgroundColor: '#374151',
-    borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  emptyProductosText: {
-    color: '#9ca3af',
-    fontSize: 14,
-    fontStyle: 'italic',
-  },
-  resumenContainer: {
-    backgroundColor: '#334155',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    flexDirection: 'row',
-    gap: 16,
-  },
-  resumenIzquierda: {
-    flex: 2,
-  },
-  resumenDerecha: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  resumenFila: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  resumenLabel: {
-    color: '#cbd5e1',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  resumenValor: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  ivaLabel: {
-    color: '#3b82f6',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  ivaValor: {
-    color: '#3b82f6',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  totalLabel: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  totalValor: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  estadoIndicadores: {
-    marginBottom: 16,
-  },
-  estadoFila: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
-  },
-  estadoBarra: {
-    width: 24,
-    height: 6,
-    borderRadius: 3,
-  },
-  estadoTexto: {
-    color: '#cbd5e1',
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  botonesEstado: {
-    gap: 8,
-  },
-  btnEstado: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    minWidth: 80,
-    justifyContent: 'center',
-  },
-  btnPagado: {
-    backgroundColor: '#22c55e',
-  },
-  btnSinPagar: {
-    backgroundColor: '#ef4444',
-  },
-  btnEntregado: {
-    backgroundColor: '#3b82f6',
-  },
-  btnPendienteEntrega: {
-    backgroundColor: '#eab308',
-  },
-  btnEstadoTexto: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  botonesAcciones: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    gap: 12,
-    marginTop: 16,
-  },
-  btnImprimir: {
-    backgroundColor: '#6366f1',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-    justifyContent: 'center',
-  },
-  btnImprimirTexto: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  btnEditarPedido: {
-    backgroundColor: '#eab308',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-    justifyContent: 'center',
-  },
-  btnEliminarPedido: {
-    backgroundColor: '#ef4444',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-    justifyContent: 'center',
-  },
-  row2: {
-    flexDirection: 'row',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  col2: {
-    flex: 1,
-    minWidth: 150,
-  },
-  input: {
-    backgroundColor: '#1e293b',
-    marginBottom: 12,
-  },
-  pickerContainer: {
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: '#3b82f6',
-    borderRadius: 8,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  picker: {
-    color: '#ffffff',
-    height: 50,
-    backgroundColor: '#1e293b',
-  },
-  facturaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 12,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderWidth: 2,
-    borderColor: '#3b82f6',
-    borderRadius: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewCalculos: {
-    backgroundColor: '#4b5563',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 16,
-  },
-  calculosGrid: {
-    gap: 10,
-  },
-  calculoItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  calculoLabel: {
-    color: '#cbd5e1',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  calculoValor: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  botonesForm: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-    marginTop: 24,
-    marginBottom: 16,
-  },
-  btnGuardar: {
-    backgroundColor: '#22c55e',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-    justifyContent: 'center',
-    maxWidth: 150,
-  },
-});

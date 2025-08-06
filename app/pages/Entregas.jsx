@@ -1,91 +1,20 @@
-import { useEffect, useState } from 'react';
-import {
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { supabase } from '../../supabase';
+import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useEntregas } from '../hooks/useEntregas';
+import { styles } from './styles/Entregas.styles';
 
 export default function Entregas() {
-  const [entregas, setEntregas] = useState([]);
-  const [form, setForm] = useState({
-    id: null,
-    nota_venta_id: '',
-    producto_id: '',
-    cantidad: '',
-    unidades: '',
-    fecha_entrega: '',
-  });
-  const [editando, setEditando] = useState(false);
-  const [mostrarFormulario, setMostrarFormulario] = useState(false);
-
-  useEffect(() => {
-    fetchEntregas();
-  }, []);
-
-  const fetchEntregas = async () => {
-    const { data, error } = await supabase.from('entregas').select('*').order('id', { ascending: false });
-    if (!error) setEntregas(data);
-  };
-
-  const handleChange = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const resetForm = () => {
-    setForm({
-      id: null,
-      nota_venta_id: '',
-      producto_id: '',
-      cantidad: '',
-      unidades: '',
-      fecha_entrega: '',
-    });
-    setEditando(false);
-    setMostrarFormulario(false);
-  };
-
-  const handleGuardar = async () => {
-    try {
-      const payload = {
-        nota_venta_id: parseInt(form.nota_venta_id),
-        producto_id: parseInt(form.producto_id),
-        cantidad: parseFloat(form.cantidad),
-        unidades: form.unidades,
-        fecha_entrega: form.fecha_entrega,
-      };
-
-      let error;
-      if (form.id) {
-        ({ error } = await supabase.from('entregas').update(payload).eq('id', form.id));
-      } else {
-        ({ error } = await supabase.from('entregas').insert([payload]));
-      }
-
-      if (error) throw error;
-
-      Alert.alert('Listo', form.id ? 'Entrega actualizada' : 'Entrega agregada');
-      resetForm();
-      fetchEntregas();
-    } catch (e) {
-      Alert.alert('Error', e.message);
-    }
-  };
-
-  const handleEditar = (item) => {
-    setForm({ ...item });
-    setEditando(true);
-    setMostrarFormulario(true);
-  };
-
-  const handleEliminar = async (id) => {
-    const { error } = await supabase.from('entregas').delete().eq('id', id);
-    if (!error) fetchEntregas();
-  };
+  const {
+    entregas,
+    form,
+    editando,
+    mostrarFormulario,
+    setMostrarFormulario,
+    handleChange,
+    resetForm,
+    handleGuardar,
+    handleEditar,
+    handleEliminar,
+  } = useEntregas();
 
   return (
     <View style={{ flexDirection: 'row', flex: 1 }}>
@@ -147,79 +76,3 @@ export default function Entregas() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: '#fff' },
-  title: { fontSize: 20, fontWeight: 'bold' },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 10,
-    borderRadius: 6,
-    marginVertical: 6,
-  },
-  saveButton: {
-    backgroundColor: '#2563eb',
-    padding: 10,
-    borderRadius: 6,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  saveButtonText: { color: 'white', fontWeight: 'bold' },
-  cancelButton: {
-    backgroundColor: '#6b7280',
-    padding: 10,
-    marginTop: 10,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  cancelButtonText: { color: 'white', fontWeight: 'bold' },
-  card: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 10,
-    marginVertical: 6,
-    flexDirection: 'row',
-    elevation: 2,
-  },
-  cardButtons: {
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginLeft: 10,
-  },
-  cardTitle: { fontSize: 16, fontWeight: 'bold' },
-  cardText: { fontSize: 12, color: '#555' },
-  editButton: {
-    backgroundColor: '#facc15',
-    padding: 8,
-    borderRadius: 6,
-    marginBottom: 6,
-  },
-  deleteButton: {
-    backgroundColor: '#ef4444',
-    padding: 8,
-    borderRadius: 6,
-  },
-  buttonText: { color: '#fff', fontWeight: 'bold' },
-  sidebar: {
-    width: 180,
-    backgroundColor: '#f3f4f6',
-    padding: 20,
-  },
-  sidebarText: {
-    fontWeight: 'bold',
-    fontSize: 18,
-    marginBottom: 20,
-  },
-  sidebarItem: {
-    fontSize: 16,
-    paddingVertical: 10,
-    color: '#1f2937',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-});
