@@ -81,7 +81,7 @@ export const useCelofan = () => {
       (p.nombre?.toLowerCase().includes(busqueda.toLowerCase())) ||
       (p.tipo?.toLowerCase().includes(busqueda.toLowerCase()))
     )
-);
+  );
 
 
   const handleChange = (campo, valor) => {
