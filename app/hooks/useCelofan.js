@@ -14,7 +14,7 @@ export const useCelofan = () => {
   const [cargandoExportar, setCargandoExportar] = useState(false);
   const [form, setForm] = useState({
     id: null,
-    material: 'Celofan',
+    material: 'Celofán',
     presentacion: '',
     tipo: '',
     ancho_cm: '',
@@ -301,13 +301,13 @@ export const useCelofan = () => {
   };
 
   const editarProducto = (producto) => {
-    if (producto.material !== 'Celofan') {
+    if (producto.material !== 'Celofán') {
       Alert.alert('Error', 'Este producto no es de Celofán.');
       return;
     }
     setForm({
       id: producto.id,
-      material: 'Celofan',
+      material: 'Celofán',
       presentacion: producto.presentacion,
       tipo: producto.tipo,
       ancho_cm: producto.ancho_cm ? producto.ancho_cm.toString() : '',
