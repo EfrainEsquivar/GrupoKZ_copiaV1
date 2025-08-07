@@ -261,6 +261,19 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginRight: 8,
   },
+  progressBarContainer: {
+    width: 50,
+    height: 8,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 4,
+    marginRight: 8,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    borderRadius: 4,
+    minWidth: 2,
+  },
   statusLabel: {
     fontSize: 11,
     color: '#cbd5e1',
