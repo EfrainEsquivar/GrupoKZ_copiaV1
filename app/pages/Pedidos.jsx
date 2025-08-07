@@ -18,9 +18,9 @@ import {
 import { TextInput as PaperInput } from 'react-native-paper';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabase';
-import PedidoDetails from '../components/pedidos/PedidoDetails';
 import Pagination from '../components/pedidos/Pagination';
-import { LoadingComponent, EmptyState } from '../components/pedidos/UtilityComponents';
+import PedidoDetails from '../components/pedidos/PedidoDetails';
+import { EmptyState, LoadingComponent } from '../components/pedidos/UtilityComponents';
 import styles from './styles/Pedidos.styles';
 
 export default function Pedidos() {
@@ -143,7 +143,7 @@ const resetForm = useCallback(() => {
     const material = (producto.material || '').toUpperCase();
 
     switch (material) {
-      case 'CELOFÁN':
+      case 'CELOFAN':
         precioPorKilo = 45;
         break;
       case 'POLIETILENO':
@@ -155,7 +155,7 @@ const resetForm = useCallback(() => {
 
     let precioUnitario = 0;
 
-    if (material === 'CELOFÁN') {
+    if (material === 'CELOFAN') {
       // Assuming calcularPrecioUnitario is defined elsewhere or passed as prop
       // For now, keeping a placeholder or simplified logic
       precioUnitario = precioPorKilo; // Simplified
@@ -234,7 +234,7 @@ const resetForm = useCallback(() => {
         .from('notas_venta')
         .select(`
           *,
-          clientes!inner(
+          clientes!notas_venta_clientes_id_fkey(
             id,
             nombre_contacto,
             empresa,
@@ -855,33 +855,58 @@ const handleEditarProductoTemporal = useCallback((producto, index) => {
 
 // Debe estar DENTRO del componente, después de todos los useState
 const handleEliminar = useCallback(async (id) => {
-  if (!confirm('¿Estás seguro de que deseas eliminar este pedido?')) {
+  // Encontrar el pedido para obtener la notas_venta_id
+  const pedido = pedidos.find(p => p.id === id);
+  if (!pedido) {
+    alert('Error: No se encontró el pedido');
+    return;
+  }
+  
+  const notaVentaId = pedido.notas_venta_id;
+  const pedidosDeNota = pedidos.filter(p => p.notas_venta_id === notaVentaId);
+  
+  if (!confirm(`¿Estás seguro de que deseas eliminar toda la nota de venta #${notaVentaId} con ${pedidosDeNota.length} producto(s)?`)) {
     return;
   }
   
   try {
     setCargando(true);
-    console.log('Eliminando pedido ID:', id);
+    console.log('Eliminando nota de venta completa ID:', notaVentaId);
     
-    const { error } = await supabase
+    // Primero eliminar todos los pedidos de la nota de venta
+    const { error: pedidosError } = await supabase
       .from('pedidos')
       .delete()
-      .eq('id', id);
+      .eq('notas_venta_id', notaVentaId);
     
-    if (error) {
-      console.error('Error:', error);
-      alert('Error: ' + error.message);
-    } else {
-      alert('Pedido eliminado');
-      await fetchPedidos();
-    }
+    if (pedidosError) throw pedidosError;
+    
+    // Luego eliminar los pagos relacionados
+    const { error: pagosError } = await supabase
+      .from('pagos')
+      .delete()
+      .eq('notas_venta_id', notaVentaId);
+    
+    if (pagosError) throw pagosError;
+    
+    // Finalmente eliminar la nota de venta
+    const { error: notaError } = await supabase
+      .from('notas_venta')
+      .delete()
+      .eq('id', notaVentaId);
+    
+    if (notaError) throw notaError;
+    
+    alert(`Nota de venta #${notaVentaId} eliminada completamente`);
+    await fetchPedidos();
+    
   } catch (error) {
     console.error('Error:', error);
-    alert('Error: ' + error.message);
+    alert('Error al eliminar la nota de venta: ' + error.message);
   } finally {
     setCargando(false);
   }
-}, [fetchPedidos]);
+}, [fetchPedidos, pedidos]);
 
   const handleEntregar = useCallback(async (id) => {
     try {
@@ -929,7 +954,7 @@ const handleEliminar = useCallback(async (id) => {
 
       // Crear movimiento en almacén
       const material = pedido.productos?.material?.toUpperCase();
-      if (material === 'CELOFÁN') {
+      if (material === 'CELOFAN') {
         await supabase.from('almacen_celofan_movimientos').insert([{
           fecha: new Date().toISOString().split('T')[0],
           producto_id: pedido.productos_id,
@@ -1121,7 +1146,7 @@ const handleEliminar = useCallback(async (id) => {
 
   // Funciones de exportación
   const exportarExcel = useCallback(async () => {
-    const pedidosFiltrados = pedidos.filter((p) => {
+    const pedidosFiltrados = notasVentaAgrupadas.flatMap(nota => nota.pedidos).filter((p) => {
       if (!p?.productos || !p?.notas_venta?.clientes) return false;
       if (!busqueda.trim()) return true;
       
@@ -1138,7 +1163,7 @@ const handleEliminar = useCallback(async (id) => {
       return searchableText.includes(busquedaLower);
     });
 
-    if (pedidosFiltrados.length === 0) {
+    if (notasVentaAgrupadas.length === 0) {
       Alert.alert('Sin datos', 'No hay pedidos para exportar.');
       return;
     }
@@ -1146,7 +1171,7 @@ const handleEliminar = useCallback(async (id) => {
     try {
       setCargandoExportar(true);
 
-      const datos = pedidosFiltrados.map((p) => {
+      const datos = notasVentaAgrupadas.flatMap(nota => nota.pedidos).map((p) => {
         const vendedorPedido = vendedores.find((v) => v.id === p.notas_venta?.clientes?.vendedores_id);
         const pagado = (p.notas_venta?.pago_pendiente || 0) <= 0;
         const medidas = p.productos ? `${p.productos.ancho_cm}x${p.productos.largo_cm}cm ${p.productos.micraje_um}μm` : 'N/A';
@@ -1211,7 +1236,7 @@ const handleEliminar = useCallback(async (id) => {
   }, [pedidos, busqueda, vendedores]);
 
   const exportarPDF = useCallback(async () => {
-    const pedidosFiltrados = pedidos.filter((p) => {
+    const pedidosFiltrados = notasVentaAgrupadas.flatMap(nota => nota.pedidos).filter((p) => {
       if (!p?.productos || !p?.notas_venta?.clientes) return false;
       if (!busqueda.trim()) return true;
       
@@ -1228,7 +1253,7 @@ const handleEliminar = useCallback(async (id) => {
       return searchableText.includes(busquedaLower);
     });
 
-    if (pedidosFiltrados.length === 0) {
+    if (notasVentaAgrupadas.length === 0) {
       Alert.alert('Sin datos', 'No hay pedidos para exportar.');
       return;
     }
@@ -1251,7 +1276,7 @@ const handleEliminar = useCallback(async (id) => {
       let totalGeneral = 0;
       let totalPendiente = 0;
 
-      const filasPedidos = pedidosFiltrados.map((p) => {
+      const filasPedidos = notasVentaAgrupadas.flatMap(nota => nota.pedidos).map((p) => {
         const vendedorPedido = vendedores.find((v) => v.id === p.notas_venta?.clientes?.vendedores_id);
         const pagado = (p.notas_venta?.pago_pendiente || 0) <= 0;
         const entregado = p.entregas?.length > 0;
@@ -1363,7 +1388,7 @@ const handleEliminar = useCallback(async (id) => {
             </table>
             
             <div class="total">
-              <p><strong>Total de pedidos:</strong> ${pedidosFiltrados.length}</p>
+              <p><strong>Total de notas de venta:</strong> ${notasVentaAgrupadas.length}</p>
               <p><strong>Importe total:</strong> ${totalGeneral.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               <p><strong>Total pendiente de pago:</strong> ${totalPendiente.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             </div>
@@ -1385,32 +1410,94 @@ const handleEliminar = useCallback(async (id) => {
     }
   }, [pedidos, busqueda, vendedores]);
 
-  // Filtrado de pedidos - CALCULAR AQUÍ DIRECTAMENTE SIN useMemo
-  const pedidosFiltrados = (() => {
-    if (!busqueda.trim()) return pedidos;
+  // Agrupar pedidos por notas de venta y filtrar
+  const notasVentaAgrupadas = (() => {
+    // Agrupar todos los pedidos por nota de venta
+    const grupos = new Map();
+    pedidos.forEach(p => {
+      const notaId = p.notas_venta_id;
+      if (!grupos.has(notaId)) {
+        grupos.set(notaId, {
+          notas_venta_id: notaId,
+          notas_venta: p.notas_venta,
+          pedidos: [],
+          materialesUnicos: new Set(),
+          totalProductos: 0,
+          totalImporte: 0
+        });
+      }
+      const grupo = grupos.get(notaId);
+      grupo.pedidos.push(p);
+      grupo.totalProductos++;
+      grupo.totalImporte += (p.importe || 0);
+      if (p.productos?.material) {
+        grupo.materialesUnicos.add(p.productos.material);
+      }
+    });
+
+    // Convertir a array y agregar información calculada
+    const notasArray = Array.from(grupos.values()).map(nota => ({
+      ...nota,
+      materialesArray: Array.from(nota.materialesUnicos),
+      // Usar el primer pedido como representante para compatibilidad
+      id: nota.pedidos[0]?.id,
+      productos: nota.pedidos[0]?.productos,
+      entregas: nota.pedidos[0]?.entregas || []
+    }));
+
+    // Aplicar filtros de búsqueda
+    if (!busqueda.trim()) return notasArray;
     
     const busquedaLower = busqueda.toLowerCase().trim();
-    return pedidos.filter((p) => {
-      if (!p?.productos || !p?.notas_venta?.clientes) return false;
-
-      const searchableText = [
-        p.productos.nombre || '',
-        p.notas_venta.clientes.nombre_contacto || '',
-        p.notas_venta.clientes.empresa || '',
-        p.id?.toString() || '',
-        p.notas_venta.numero_factura || '',
-        p.productos.material || '',
+    
+    return notasArray.filter((nota) => {
+      if (!nota?.notas_venta?.clientes) return false;
+      
+      const materialesTexto = nota.materialesArray.join(' ').toLowerCase();
+      
+      // Campos de búsqueda
+      const camposBusqueda = [
+        // Folio (notas_venta_id)
+        nota.notas_venta_id?.toString() || '',
+        // Cliente
+        nota.notas_venta.clientes.nombre_contacto || '',
+        nota.notas_venta.clientes.empresa || '',
+        // Materiales de toda la nota
+        materialesTexto,
+        // Número de factura
+        nota.notas_venta.numero_factura || '',
+        // Productos individuales
+        ...nota.pedidos.map(p => p.productos?.nombre || '')
       ].join(' ').toLowerCase();
-
-      return searchableText.includes(busquedaLower);
+      
+      // Búsqueda específica por materiales
+      const tieneCelofan = nota.materialesArray.some(m => m?.toUpperCase() === 'CELOFAN');
+      const tienePolietileno = nota.materialesArray.some(m => m?.toUpperCase() === 'POLIETILENO');
+      
+      let coincide = camposBusqueda.includes(busquedaLower);
+      
+      // Búsquedas especiales por material
+      if (!coincide) {
+        if (busquedaLower === 'celofan' && tieneCelofan) {
+          coincide = true;
+        } else if (busquedaLower === 'polietileno' && tienePolietileno) {
+          coincide = true;
+        } else if (busquedaLower === 'ambos' && tieneCelofan && tienePolietileno) {
+          coincide = true;
+        } else if (busquedaLower === 'mixto' && tieneCelofan && tienePolietileno) {
+          coincide = true;
+        }
+      }
+      
+      return coincide;
     });
   })();
 
   // Paginación
-  const totalPages = Math.ceil(pedidosFiltrados.length / itemsPerPage);
+  const totalPages = Math.ceil(notasVentaAgrupadas.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const pedidosPaginados = pedidosFiltrados.slice(startIndex, endIndex);
+  const notasVentaPaginadas = notasVentaAgrupadas.slice(startIndex, endIndex);
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -1489,9 +1576,11 @@ const handleEliminar = useCallback(async (id) => {
       }, 0);
       
       const iva = aplicarIva ? subtotal * 0.16 : 0;
-      const total = subtotal + iva - Number(form.descuento || 0);
+      const subtotalConIva = subtotal + iva;
+      const descuentoImporte = (Number(form.descuento || 0) / 100) * subtotalConIva;
+      const total = subtotalConIva - descuentoImporte;
       
-      return { subtotal, iva, total };
+      return { subtotal, iva, total, descuentoImporte };
     })();
 
     const productoSeleccionadoForm = productos.find(p => p.id === Number(detalleForm.productos_id));
@@ -1967,9 +2056,9 @@ const handleEliminar = useCallback(async (id) => {
                 )}
                 
                 <View style={styles.calculoItem}>
-                  <Text style={styles.calculoLabel}>Descuento:</Text>
+                  <Text style={styles.calculoLabel}>Descuento ({Number(form.descuento || 0)}%):</Text>
                   <Text style={styles.calculoValor}>
-                    ${Number(form.descuento || 0).toLocaleString('es-MX', { 
+                    ${totalesFormulario.descuentoImporte.toLocaleString('es-MX', { 
                       minimumFractionDigits: 2, 
                       maximumFractionDigits: 2 
                     })}
@@ -2043,7 +2132,7 @@ const handleEliminar = useCallback(async (id) => {
       <View style={styles.buscador}>
         <Ionicons name="search" size={20} color="#ffffff" />
         <TextInput
-          placeholder="Buscar por ID, producto, cliente o material"
+          placeholder="Buscar por folio, cliente, empresa o material (celofan, polietileno)"
           placeholderTextColor="#cccccc"
           style={styles.inputText}
           value={busqueda}
@@ -2061,7 +2150,7 @@ const handleEliminar = useCallback(async (id) => {
         <TouchableOpacity 
           onPress={exportarExcel} 
           style={styles.btnExportarExcel} 
-          disabled={cargandoExportar || pedidosFiltrados.length === 0}
+          disabled={cargandoExportar || notasVentaAgrupadas.length === 0}
         >
           {cargandoExportar ? (
             <ActivityIndicator color="#ffffff" size="small" />
@@ -2076,7 +2165,7 @@ const handleEliminar = useCallback(async (id) => {
         <TouchableOpacity 
           onPress={exportarPDF} 
           style={styles.btnExportarPDF} 
-          disabled={cargandoExportar || pedidosFiltrados.length === 0}
+          disabled={cargandoExportar || notasVentaAgrupadas.length === 0}
         >
           {cargandoExportar ? (
             <ActivityIndicator color="#ffffff" size="small" />
@@ -2092,37 +2181,50 @@ const handleEliminar = useCallback(async (id) => {
       {/* Estado de carga */}
       {cargando && <LoadingComponent />}
 
-      {/* Lista de pedidos */}
+      {/* Lista de notas de venta */}
       <ScrollView style={styles.lista} showsVerticalScrollIndicator={false}>
-        {pedidosPaginados.length === 0 ? (
+        {notasVentaPaginadas.length === 0 ? (
           <EmptyState 
-            message="No hay pedidos registrados" 
+            message="No hay notas de venta registradas" 
             hasSearch={busqueda.length > 0} 
           />
         ) : (
-          pedidosPaginados.map((p) => {
-            const vendedorPedido = vendedores.find((v) => v.id === p.notas_venta?.clientes?.vendedores_id);
-            const pagadoPedido = (p.notas_venta?.pago_pendiente || 0) <= 0;
-            const entregadoPedido = p.entregas?.length > 0;
+          notasVentaPaginadas.map((nota) => {
+            const vendedorNota = vendedores.find((v) => v.id === nota.notas_venta?.clientes?.vendedores_id);
+            const pagadoNota = (nota.notas_venta?.pago_pendiente || 0) <= 0;
+            const entregadoNota = nota.pedidos.some(p => p.entregas?.length > 0);
+            
+            // Calcular progreso de pagos
+            const totalNotaVenta = nota.notas_venta?.total || 0;
+            const totalPagado = totalNotaVenta - (nota.notas_venta?.pago_pendiente || 0);
+            const progresoPago = totalNotaVenta > 0 ? (totalPagado / totalNotaVenta) * 100 : 0;
+            
+            // Calcular progreso de días de crédito
+            const diasCredito = nota.notas_venta?.clientes?.dias_credito || 0;
+            const fechaNota = new Date(nota.notas_venta?.fecha || Date.now());
+            const fechaHoy = new Date();
+            const diasTranscurridos = Math.floor((fechaHoy - fechaNota) / (1000 * 60 * 60 * 24));
+            const progresoCredito = diasCredito > 0 ? (diasTranscurridos / diasCredito) * 100 : 0;
 
             return (
-              <View key={`pedido-${p.id}`} style={styles.card}>
+              <View key={`nota-${nota.notas_venta_id}`} style={styles.card}>
                 <View style={styles.cardGrid}>
                   <View style={styles.infoCompleta}>
-                    <Text style={styles.nombre}>Folio: #{p.id}</Text>
-                    <Text style={styles.info}>Cliente: {p.notas_venta?.clientes?.nombre_contacto}</Text>
-                    <Text style={styles.info} numberOfLines={1}>
-                      Producto: {p.productos?.nombre}
-                    </Text>
+                    <Text style={styles.nombre}>Folio: #{nota.notas_venta_id}</Text>
+                    <Text style={styles.info}>Cliente: {nota.notas_venta?.clientes?.empresa || nota.notas_venta?.clientes?.nombre_contacto || 'Sin cliente'}</Text>
+                    <Text style={styles.info}>Productos: {nota.totalProductos} items</Text>
+                    <Text style={styles.info}>Total: ${(nota.notas_venta?.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
 
-                    <Text style={styles.label}>Material:</Text>
+                    <Text style={styles.label}>Materiales:</Text>
                     <View style={styles.materialTags}>
-                      <View style={styles.materialTag}>
-                        <Text style={styles.materialTagText}>{p.productos?.material || 'N/A'}</Text>
-                      </View>
-                      {p.productos?.tipo && (
-                        <View style={styles.tipoMaterialTag}>
-                          <Text style={styles.tipoMaterialTagText}>{p.productos.tipo}</Text>
+                      {nota.materialesArray.map((material, index) => (
+                        <View key={`material-${index}`} style={styles.materialTag}>
+                          <Text style={styles.materialTagText}>{material}</Text>
+                        </View>
+                      ))}
+                      {nota.materialesArray.length === 0 && (
+                        <View style={styles.materialTag}>
+                          <Text style={styles.materialTagText}>N/A</Text>
                         </View>
                       )}
                     </View>
@@ -2134,16 +2236,25 @@ const handleEliminar = useCallback(async (id) => {
                   {/* Indicadores de estado */}
                   <View style={styles.statusIndicators}>
                     <View style={styles.statusRow}>
-                      <View style={[styles.statusBar, { backgroundColor: pagadoPedido ? '#22c55e' : '#e5e7eb' }]} />
-                      <Text style={styles.statusLabel}>Pagos</Text>
+                      <View style={styles.progressBarContainer}>
+                        <View style={[styles.progressBar, { width: `${Math.min(progresoPago, 100)}%`, backgroundColor: progresoPago >= 100 ? '#22c55e' : '#3b82f6' }]} />
+                      </View>
+                      <Text style={styles.statusLabel}>Pagos {progresoPago.toFixed(0)}%</Text>
                     </View>
                     <View style={styles.statusRow}>
-                      <View style={[styles.statusBar, { backgroundColor: entregadoPedido ? '#3b82f6' : '#e5e7eb' }]} />
+                      <View style={[styles.statusBar, { backgroundColor: entregadoNota ? '#3b82f6' : '#e5e7eb' }]} />
                       <Text style={styles.statusLabel}>Entrega</Text>
                     </View>
                     <View style={styles.statusRow}>
-                      <View style={[styles.statusBar, { backgroundColor: '#eab308' }]} />
-                      <Text style={styles.statusLabel}>Crédito</Text>
+                      <View style={styles.progressBarContainer}>
+                        <View style={[styles.progressBar, { 
+                          width: `${Math.min(progresoCredito, 100)}%`, 
+                          backgroundColor: progresoCredito >= 100 ? '#ef4444' : progresoCredito >= 80 ? '#f59e0b' : '#22c55e' 
+                        }]} />
+                      </View>
+                      <Text style={styles.statusLabel}>
+                        Crédito {diasTranscurridos}/{diasCredito} días
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -2151,7 +2262,7 @@ const handleEliminar = useCallback(async (id) => {
                 {/* Botones de acción */}
                 <View style={styles.botonesCard}>
                   <TouchableOpacity 
-                    onPress={() => handleVerDetalles(p)} 
+                    onPress={() => handleVerDetalles(nota.pedidos[0])} 
                     style={styles.btnVerDetalles}
                     disabled={cargando}
                   >
@@ -2160,7 +2271,7 @@ const handleEliminar = useCallback(async (id) => {
                   </TouchableOpacity>
 
                   <TouchableOpacity 
-                    onPress={() => editarPedido(p)} 
+                    onPress={() => editarPedido(nota.pedidos[0])} 
                     style={styles.btnEditar} 
                     disabled={cargando}
                   >
@@ -2169,7 +2280,7 @@ const handleEliminar = useCallback(async (id) => {
                   </TouchableOpacity>
 
                   <TouchableOpacity 
-                    onPress={() => handleEliminar(p.id)} 
+                    onPress={() => handleEliminar(nota.pedidos[0].id)} 
                     style={styles.btnEliminar} 
                     disabled={cargando}
                   >
@@ -2177,9 +2288,9 @@ const handleEliminar = useCallback(async (id) => {
                     <Text style={styles.botonTexto}>Eliminar</Text>
                   </TouchableOpacity>
 
-                  {!pagadoPedido && (
+                  {!pagadoNota && (
                     <TouchableOpacity 
-                      onPress={() => handleAbonar(p.id)} 
+                      onPress={() => handleAbonar(nota.pedidos[0].id)} 
                       style={styles.btnAbonar} 
                       disabled={cargando}
                     >
@@ -2188,9 +2299,9 @@ const handleEliminar = useCallback(async (id) => {
                     </TouchableOpacity>
                   )}
 
-                  {!entregadoPedido && (
+                  {!entregadoNota && (
                     <TouchableOpacity 
-                      onPress={() => handleEntregar(p.id)} 
+                      onPress={() => handleEntregar(nota.pedidos[0].id)} 
                       style={styles.btnEntregar} 
                       disabled={cargando}
                     >
@@ -2206,11 +2317,11 @@ const handleEliminar = useCallback(async (id) => {
       </ScrollView>
 
       {/* Paginación */}
-      {pedidosFiltrados.length > itemsPerPage && (
+      {notasVentaAgrupadas.length > itemsPerPage && (
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}
-          totalItems={pedidosFiltrados.length}
+          totalItems={notasVentaAgrupadas.length}
           onPageChange={setCurrentPage}
         />
       )}
