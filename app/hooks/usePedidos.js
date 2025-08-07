@@ -550,7 +550,9 @@ const fetchPedidosDetalle = useCallback(async (notaVentaId) => {
       }, 0);
 
       const ivaTotal = aplicarIva ? subtotalTotal * 0.16 : 0;
-      const totalFinal = subtotalTotal + ivaTotal - descuentoNum;
+      const subtotalConIva = subtotalTotal + ivaTotal;
+      const descuentoImporte = (descuentoNum / 100) * subtotalConIva;
+      const totalFinal = subtotalConIva - descuentoImporte;
 
       if (totalFinal <= 0) {
         Alert.alert('Error', 'El total debe ser mayor a 0.');
@@ -563,7 +565,7 @@ const fetchPedidosDetalle = useCallback(async (notaVentaId) => {
         subtotal: subtotalTotal,
         iva: ivaTotal,
         total: totalFinal,
-        descuento: descuentoNum,
+        descuento: descuentoImporte,
         numero_factura: numero_factura || null,
       };
 
