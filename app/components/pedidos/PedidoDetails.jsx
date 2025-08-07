@@ -1,25 +1,19 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Platform,
   ScrollView,
-  StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { TextInput as PaperInput } from 'react-native-paper';
-import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
-import * as FileSystem from 'expo-file-system';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
-import * as XLSX from 'xlsx';
-import { supabase } from '../../../supabase';
+import { calcularKgPorMillar, calcularPrecioUnitario } from '../../constants/calculations';
 import styles from '../../pages/styles/Pedidos.styles';
-import { calcularPrecioUnitario, calcularKgPorMillar } from '../../constants/calculations';
 import { LoadingComponent } from './UtilityComponents';
 
 const PedidoDetails = ({
@@ -416,7 +410,7 @@ useEffect(() => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Detalles del pedido #{pedido.id}</Text>
+        <Text style={styles.title}>Detalles del pedido #{pedido.notas_venta?.id}</Text>
         <TouchableOpacity onPress={onVolver} style={styles.btnVolver}>
           <Ionicons name="arrow-back" size={16} color="#ffffff" />
           <Text style={styles.botonTexto}>Volver</Text>
@@ -432,14 +426,10 @@ useEffect(() => {
           </View>
           <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Folio:</Text>
-            <Text style={styles.infoValue}>{pedido.id || 'N/A'}</Text>
+            <Text style={styles.infoValue}>{pedido.notas_venta?.id || 'N/A'}</Text>
           </View>
           <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Cliente:</Text>
-            <Text style={styles.infoValue}>{pedido.notas_venta?.clientes?.nombre_contacto || 'N/A'}</Text>
-          </View>
-          <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Empresa:</Text>
             <Text style={styles.infoValue}>{pedido.notas_venta?.clientes?.empresa || 'N/A'}</Text>
           </View>
           <View style={styles.infoItem}>
